@@ -72,11 +72,27 @@ Ao completar cada onda, escolha **1 de 3** melhorias aleatórias:
 
 ## 🗺️ Layout do Mapa
 
-O mapa é uma grade de **14×10** células com um caminho fixo sinuoso de 29 waypoints. Torres podem ser construídas em qualquer célula que não faça parte do caminho. O caminho é renderizado em cor areia com texturas procedurais e indicadores de direção.
+O mapa é uma grade de **14×10** células com um caminho fixo sinuoso de 29 waypoints. Torres podem ser construídas em qualquer célula de grama que não seja parte do caminho.
+
+### Réguas de Coordenadas
+O mapa exibe **réguas douradas** nas bordas superior e esquerda, permitindo que o jogador identifique visualmente a posição (coluna, linha) de cada célula antes de construir.
 
 ```
-START ──► curva ──► serpentina ──► curva ──► reta final ──► END
+     Col → 0   1   2   3   4  ...  13
+Linha ↓ ┌───┬───┬───┬───┬───┬    ┬───┐
+  0     │   │   │▒▒▒│   │   │    │   │   ← ▒▒▒ = caminho
+  1     │   │   │▒▒▒│   │   │    │   │
+  2     │   │   │▒▒▒│▒▒▒│▒▒▒│... │   │
+ ...    │   │   │   │   │   │    │   │
+  9     │   │   │   │   │   │ ▒▒▒│▒▒▒│ → END
+        └───┴───┴───┴───┴───┴    ┴───┘
+START → (0,4)                    END → (13,7)
 ```
+
+### Como posicionar torres
+1. **Hover no mapa**: Passe o mouse sobre qualquer célula — a coordenada `(Col, Linha)` aparece em um tooltip e é destacada com borda dourada (válida) ou vermelha (bloqueada).
+2. **Clique direto no mapa**: Com uma torre selecionada, clique sobre uma célula de grama para construí-la instantaneamente.
+3. **Formulário numérico**: No painel lateral, insira a coluna e a linha manualmente e clique em "Construir". O sistema valida em tempo real se a posição é livre.
 
 ---
 
