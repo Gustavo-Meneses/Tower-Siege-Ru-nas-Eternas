@@ -16,7 +16,8 @@ st.set_page_config(
 # CONSTANTS
 # ══════════════════════════════════════════════════════════════════════════════
 GRID_W, GRID_H = 14, 10
-CELL = 52  # px per cell
+CELL = 52        # px per cell
+RULER = 22       # px for the coord ruler strip
 
 TOWER_TYPES = {
     "archer": {
@@ -638,6 +639,7 @@ def build_arena_html():
     COLS = GRID_W
     ROWS = GRID_H
     C = CELL
+    R = RULER   # ruler strip size
 
     # Serialize state for JS
     towers_js = json.dumps({
@@ -663,20 +665,22 @@ def build_arena_html():
         })
     enemies_js = json.dumps(enemies_js)
 
-    path_js = json.dumps(path)
+    path_js  = json.dumps(path)
     events_js = json.dumps(ss.anim_events)
     selected = ss.selected_tower or ""
 
-    # Pixel art tower sprites via box-shadow
     tower_sprites = {
-        "archer": "#5D8A23",
-        "mage": "#6A0080",
+        "archer":   "#5D8A23",
+        "mage":     "#6A0080",
         "ballista": "#B36000",
-        "frost": "#007A8C",
-        "cannon": "#4E342E",
+        "frost":    "#007A8C",
+        "cannon":   "#4E342E",
     }
-
     tower_sprite_js = json.dumps(tower_sprites)
+
+    # Total canvas size includes ruler strips on top and left
+    CANVAS_W = R + COLS * C
+    CANVAS_H = R + ROWS * C
 
     html = f"""<!DOCTYPE html>
 <html>
@@ -684,209 +688,94 @@ def build_arena_html():
 <meta charset="utf-8">
 <style>
 *{{ margin:0; padding:0; box-sizing:border-box; }}
-body {{
+html, body {{
     background: #0A0A0F;
+    width: {CANVAS_W}px;
+    height: {CANVAS_H}px;
     overflow: hidden;
     font-family: monospace;
     user-select: none;
 }}
+#wrapper {{
+    position: relative;
+    width: {CANVAS_W}px;
+    height: {CANVAS_H}px;
+}}
 canvas {{
     display: block;
+    position: absolute;
+    top: 0; left: 0;
     image-rendering: pixelated;
 }}
 #overlay {{
     position: absolute;
     pointer-events: none;
-    top: 0; left: 0;
-    width: 100%; height: 100%;
+    top: {R}px; left: {R}px;
+    width: {COLS*C}px; height: {ROWS*C}px;
 }}
+/* ── animations ── */
 .anim-hit {{
-    position: absolute;
-    border-radius: 50%;
+    position: absolute; border-radius: 50%;
     pointer-events: none;
     animation: hit-anim 0.4s ease-out forwards;
 }}
 @keyframes hit-anim {{
-    0%   {{ transform: scale(0.2); opacity: 1; }}
-    100% {{ transform: scale(1.8); opacity: 0; }}
+    0%   {{ transform:scale(0.2); opacity:1; }}
+    100% {{ transform:scale(1.8); opacity:0; }}
 }}
 .anim-kill {{
-    position: absolute;
-    pointer-events: none;
-    font-size: 16px;
+    position: absolute; pointer-events: none; font-size: 16px;
     animation: kill-anim 0.8s ease-out forwards;
-    text-shadow: 0 0 6px rgba(255,200,0,0.8);
+    text-shadow: 0 0 6px rgba(255,200,0,.8);
 }}
 @keyframes kill-anim {{
-    0%   {{ transform: translateY(0); opacity: 1; }}
-    100% {{ transform: translateY(-40px); opacity: 0; }}
+    0%   {{ transform:translateY(0);   opacity:1; }}
+    100% {{ transform:translateY(-40px); opacity:0; }}
 }}
 .dmg-num {{
-    position: absolute;
-    color: #FF4444;
-    font-size: 13px;
-    font-weight: bold;
-    pointer-events: none;
+    position: absolute; color: #FF4444; font-size: 13px;
+    font-weight: bold; pointer-events: none;
     text-shadow: 0 0 4px #000;
     animation: dmg-anim 0.6s ease-out forwards;
 }}
 @keyframes dmg-anim {{
-    0%   {{ transform: translateY(0) scale(1); opacity: 1; }}
-    100% {{ transform: translateY(-30px) scale(0.8); opacity: 0; }}
+    0%   {{ transform:translateY(0) scale(1);   opacity:1; }}
+    100% {{ transform:translateY(-30px) scale(.8); opacity:0; }}
 }}
 #tooltip {{
     position: absolute;
-    background: rgba(10,10,20,0.92);
-    border: 1px solid #D4AF37;
-    border-radius: 4px;
-    padding: 4px 8px;
-    font-size: 11px;
-    color: #E8DCC8;
-    pointer-events: none;
-    display: none;
-    z-index: 100;
+    background: rgba(10,10,20,.94);
+    border: 1px solid #D4AF37; border-radius: 4px;
+    padding: 5px 9px; font-size: 11px; color: #E8DCC8;
+    pointer-events: none; display: none; z-index: 200;
+    white-space: nowrap;
 }}
 </style>
 </head>
 <body>
-<canvas id="c"></canvas>
-<div id="overlay"></div>
-<div id="tooltip"></div>
+<div id="wrapper">
+  <canvas id="c" width="{CANVAS_W}" height="{CANVAS_H}"></canvas>
+  <div id="overlay"></div>
+  <div id="tooltip"></div>
+</div>
 <script>
-const COLS={COLS}, ROWS={ROWS}, C={C};
-const W = COLS * C, H = ROWS * C;
+const COLS={COLS}, ROWS={ROWS}, C={C}, R={R};
+const CW={CANVAS_W}, CH={CANVAS_H};
+// grid origin (after ruler)
+const OX=R, OY=R;
+
 const canvas = document.getElementById('c');
-canvas.width = W; canvas.height = H;
 const ctx = canvas.getContext('2d');
 
-const PATH = {path_js};
-const PATH_SET = new Set(PATH.map(p => p[0]+','+p[1]));
-const TOWERS = {towers_js};
-const TOWER_COLORS = {tower_sprite_js};
-let enemies = {enemies_js};
-const EVENTS = {events_js};
-const SELECTED = "{selected}";
+const PATH      = {path_js};
+const PATH_SET  = new Set(PATH.map(p=>p[0]+','+p[1]));
+const TOWERS    = {towers_js};
+const T_COLORS  = {tower_sprite_js};
+let   enemies   = {enemies_js};
+const EVENTS    = {events_js};
+const SELECTED  = "{selected}";
 
-// ── Draw terrain ─────────────────────────────────────────────────────────────
-function drawTerrain() {{
-    for (let r = 0; r < ROWS; r++) {{
-        for (let c = 0; c < COLS; c++) {{
-            const key = c+','+r;
-            const isPath = PATH_SET.has(key);
-            const x = c * C, y = r * C;
-
-            if (isPath) {{
-                // Sandy path
-                ctx.fillStyle = '#C8A96E';
-                ctx.fillRect(x, y, C, C);
-                // Path texture dots
-                ctx.fillStyle = 'rgba(100,70,30,0.3)';
-                for (let px=2;px<C;px+=8) for(let py=2;py<C;py+=8)
-                    ctx.fillRect(x+px,y+py,2,2);
-                // Border
-                ctx.strokeStyle = 'rgba(160,120,50,0.4)';
-                ctx.strokeRect(x+0.5,y+0.5,C-1,C-1);
-            }} else {{
-                // Grass tile
-                const dark = (c+r)%2===0;
-                ctx.fillStyle = dark ? '#2D5016' : '#345C1A';
-                ctx.fillRect(x, y, C, C);
-                // Grass texture
-                ctx.fillStyle = dark ? '#3A6820' : '#416824';
-                ctx.fillRect(x+2,y+4,3,2);
-                ctx.fillRect(x+C-8,y+C-7,3,2);
-                ctx.fillRect(x+C/2-2,y+C/2,3,2);
-                // Grid line
-                ctx.strokeStyle = 'rgba(0,0,0,0.15)';
-                ctx.strokeRect(x+0.5,y+0.5,C-1,C-1);
-            }}
-        }}
-    }}
-    // Path arrows
-    ctx.fillStyle = 'rgba(100,70,20,0.4)';
-    for (let i=1; i<PATH.length-1; i++) {{
-        const [c1,r1]=PATH[i-1],[c2,r2]=PATH[i];
-        const cx=(c1+c2)/2*C+C/2, cy=(r1+r2)/2*C+C/2;
-        const ang = Math.atan2(r2-r1,c2-c1);
-        ctx.save(); ctx.translate(cx,cy); ctx.rotate(ang);
-        ctx.beginPath(); ctx.moveTo(6,0); ctx.lineTo(-4,-4); ctx.lineTo(-4,4);
-        ctx.closePath(); ctx.fill(); ctx.restore();
-    }}
-    // Start / end markers
-    const [sc,sr] = PATH[0];
-    ctx.fillStyle='rgba(0,200,0,0.35)';
-    ctx.fillRect(sc*C,sr*C,C,C);
-    ctx.fillStyle='#00FF88';
-    ctx.font='bold 11px monospace';
-    ctx.textAlign='center';
-    ctx.fillText('START',sc*C+C/2,sr*C+C/2+4);
-
-    const [ec,er] = PATH[PATH.length-1];
-    ctx.fillStyle='rgba(200,0,0,0.35)';
-    ctx.fillRect(ec*C,er*C,C,C);
-    ctx.fillStyle='#FF4444';
-    ctx.fillText('END',ec*C+C/2,er*C+C/2+4);
-}}
-
-// ── Pixel-art tower sprite via box-shadow technique (drawn on canvas) ────────
-function drawPixelTower(cx, cy, ttype) {{
-    const color = TOWER_COLORS[ttype] || '#888';
-    // Base stone
-    ctx.fillStyle = '#5A4A3A';
-    ctx.fillRect(cx-10,cy+4,20,8);
-    // Tower body
-    ctx.fillStyle = '#6B5B4B';
-    ctx.fillRect(cx-7,cy-12,14,16);
-    // Battlements
-    ctx.fillStyle = '#7A6A5A';
-    for(let i=0;i<3;i++) ctx.fillRect(cx-8+i*6,cy-17,4,5);
-    // Tower color highlight
-    ctx.fillStyle = color;
-    ctx.fillRect(cx-4,cy-8,8,10);
-    // Window
-    ctx.fillStyle='#0A0A1A';
-    ctx.fillRect(cx-2,cy-6,4,5);
-    // Icon text
-    const icons = {{archer:'🏹',mage:'🔮',ballista:'⚡',frost:'❄️',cannon:'💣'}};
-    ctx.font='14px serif'; ctx.textAlign='center';
-    ctx.fillText(icons[ttype]||'🗼',cx,cy-20);
-}}
-
-// ── Enemy pixel sprites ───────────────────────────────────────────────────────
-function drawEnemy(e) {{
-    const px = e.x * C + C/2;
-    const py = e.y * C + C/2;
-    const sz = e.size==='boss'?22:e.size==='large'?18:e.size==='medium'?14:11;
-    const col = e.color;
-
-    ctx.save();
-    // Shadow
-    ctx.fillStyle='rgba(0,0,0,0.4)';
-    ctx.beginPath(); ctx.ellipse(px,py+sz-2,sz*0.7,4,0,0,Math.PI*2); ctx.fill();
-
-    // Body
-    ctx.fillStyle=col;
-    ctx.fillRect(px-sz/2,py-sz,sz,sz*1.2);
-
-    // Head
-    ctx.fillStyle = lighten(col,20);
-    ctx.fillRect(px-sz*0.4,py-sz*1.6,sz*0.8,sz*0.7);
-
-    // Eyes (pixel art)
-    ctx.fillStyle='#000';
-    ctx.fillRect(px-sz*0.25,py-sz*1.4,3,3);
-    ctx.fillRect(px+sz*0.1,py-sz*1.4,3,3);
-
-    // HP bar bg
-    ctx.fillStyle='#200000';
-    ctx.fillRect(px-sz*0.8,py-sz*1.9,sz*1.6,5);
-    // HP fill
-    ctx.fillStyle = e.hp_pct>0.5?'#27AE60':e.hp_pct>0.25?'#F39C12':'#E74C3C';
-    ctx.fillRect(px-sz*0.8,py-sz*1.9,sz*1.6*e.hp_pct,5);
-
-    ctx.restore();
-}}
-
+// ── helpers ──────────────────────────────────────────────────────────────────
 function lighten(hex, amt) {{
     const n=parseInt(hex.slice(1),16);
     const r=Math.min(255,((n>>16)&0xff)+amt);
@@ -894,66 +783,211 @@ function lighten(hex, amt) {{
     const b=Math.min(255,(n&0xff)+amt);
     return '#'+((r<<16)|(g<<8)|b).toString(16).padStart(6,'0');
 }}
+function rnd(a,b){{return Math.floor(Math.random()*(b-a))+a;}}
 
-// ── Towers ───────────────────────────────────────────────────────────────────
+// ── Ruler strips ─────────────────────────────────────────────────────────────
+function drawRulers() {{
+    // Background of ruler strips
+    ctx.fillStyle = '#12121A';
+    ctx.fillRect(0, 0, CW, R);   // top strip
+    ctx.fillRect(0, 0, R, CH);   // left strip
+
+    // Corner cell
+    ctx.fillStyle = '#1A1A2E';
+    ctx.fillRect(0, 0, R, R);
+    ctx.fillStyle = '#D4AF37';
+    ctx.font = 'bold 9px monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('C\\\\R', R/2, R/2);
+
+    // Column numbers (0-13)
+    for (let c=0; c<COLS; c++) {{
+        const x = OX + c*C + C/2;
+        // alternating bg
+        ctx.fillStyle = c%2===0 ? '#1A1A2E' : '#141420';
+        ctx.fillRect(OX+c*C, 0, C, R);
+        // number
+        ctx.fillStyle = '#D4AF37';
+        ctx.font = 'bold 11px monospace';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(c, x, R/2);
+    }}
+
+    // Row numbers (0-9)
+    for (let r=0; r<ROWS; r++) {{
+        const y = OY + r*C + C/2;
+        ctx.fillStyle = r%2===0 ? '#1A1A2E' : '#141420';
+        ctx.fillRect(0, OY+r*C, R, C);
+        ctx.fillStyle = '#D4AF37';
+        ctx.font = 'bold 11px monospace';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(r, R/2, y);
+    }}
+
+    // Ruler borders
+    ctx.strokeStyle = '#2A2A4A';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(0.5, 0.5, CW-1, CH-1);
+    ctx.beginPath();
+    ctx.moveTo(R, 0); ctx.lineTo(R, CH);
+    ctx.moveTo(0, R); ctx.lineTo(CW, R);
+    ctx.stroke();
+}}
+
+// ── Terrain ───────────────────────────────────────────────────────────────────
+function drawTerrain() {{
+    for (let r=0; r<ROWS; r++) {{
+        for (let c=0; c<COLS; c++) {{
+            const key = c+','+r;
+            const isPath = PATH_SET.has(key);
+            const x = OX+c*C, y = OY+r*C;
+
+            if (isPath) {{
+                ctx.fillStyle = '#C8A96E';
+                ctx.fillRect(x, y, C, C);
+                ctx.fillStyle = 'rgba(100,70,30,.3)';
+                for (let px=2;px<C;px+=8) for(let py=2;py<C;py+=8)
+                    ctx.fillRect(x+px,y+py,2,2);
+                ctx.strokeStyle='rgba(160,120,50,.4)';
+                ctx.lineWidth=1;
+                ctx.strokeRect(x+.5,y+.5,C-1,C-1);
+            }} else {{
+                const dark=(c+r)%2===0;
+                ctx.fillStyle=dark?'#2D5016':'#345C1A';
+                ctx.fillRect(x,y,C,C);
+                ctx.fillStyle=dark?'#3A6820':'#416824';
+                ctx.fillRect(x+2,y+4,3,2);
+                ctx.fillRect(x+C-8,y+C-7,3,2);
+                ctx.fillRect(x+C/2-2,y+C/2,3,2);
+                ctx.strokeStyle='rgba(0,0,0,.15)'; ctx.lineWidth=1;
+                ctx.strokeRect(x+.5,y+.5,C-1,C-1);
+            }}
+        }}
+    }}
+
+    // Path arrows
+    ctx.fillStyle='rgba(100,70,20,.45)';
+    for (let i=1; i<PATH.length; i++) {{
+        const [c1,r1]=PATH[i-1],[c2,r2]=PATH[i];
+        const cx=OX+(c1+c2)/2*C+C/2, cy=OY+(r1+r2)/2*C+C/2;
+        const ang=Math.atan2(r2-r1,c2-c1);
+        ctx.save(); ctx.translate(cx,cy); ctx.rotate(ang);
+        ctx.beginPath(); ctx.moveTo(7,0); ctx.lineTo(-5,-5); ctx.lineTo(-5,5);
+        ctx.closePath(); ctx.fill(); ctx.restore();
+    }}
+
+    // START / END
+    const [sc,sr]=PATH[0];
+    ctx.fillStyle='rgba(0,200,0,.35)';
+    ctx.fillRect(OX+sc*C,OY+sr*C,C,C);
+    ctx.fillStyle='#00FF88'; ctx.font='bold 10px monospace';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('▶ START',OX+sc*C+C/2,OY+sr*C+C/2);
+
+    const [ec,er]=PATH[PATH.length-1];
+    ctx.fillStyle='rgba(200,0,0,.35)';
+    ctx.fillRect(OX+ec*C,OY+er*C,C,C);
+    ctx.fillStyle='#FF4444';
+    ctx.fillText('END ✖',OX+ec*C+C/2,OY+er*C+C/2);
+}}
+
+// ── Hover highlight ───────────────────────────────────────────────────────────
+let hoverC=-1, hoverR=-1;
+function drawHover() {{
+    if (!SELECTED || hoverC<0) return;
+    const key=hoverC+','+hoverR;
+    const isPath=PATH_SET.has(key);
+    const occupied=TOWERS[key];
+    const valid=!isPath&&!occupied;
+    ctx.fillStyle=valid?'rgba(212,175,55,.25)':'rgba(200,50,50,.25)';
+    ctx.fillRect(OX+hoverC*C,OY+hoverR*C,C,C);
+    ctx.strokeStyle=valid?'#D4AF37':'#E74C3C';
+    ctx.lineWidth=2;
+    ctx.strokeRect(OX+hoverC*C+1,OY+hoverR*C+1,C-2,C-2);
+    // Coord label on cell
+    ctx.fillStyle=valid?'#D4AF37':'#FF6666';
+    ctx.font='bold 10px monospace';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('('+hoverC+','+hoverR+')',OX+hoverC*C+C/2,OY+hoverR*C+C/2);
+}}
+
+// ── Tower sprites ─────────────────────────────────────────────────────────────
+function drawPixelTower(cx, cy, ttype) {{
+    const color=T_COLORS[ttype]||'#888';
+    ctx.fillStyle='#5A4A3A'; ctx.fillRect(cx-10,cy+4,20,8);
+    ctx.fillStyle='#6B5B4B'; ctx.fillRect(cx-7,cy-12,14,16);
+    ctx.fillStyle='#7A6A5A';
+    for(let i=0;i<3;i++) ctx.fillRect(cx-8+i*6,cy-17,4,5);
+    ctx.fillStyle=color; ctx.fillRect(cx-4,cy-8,8,10);
+    ctx.fillStyle='#0A0A1A'; ctx.fillRect(cx-2,cy-6,4,5);
+    const icons={{archer:'🏹',mage:'🔮',ballista:'⚡',frost:'❄️',cannon:'💣'}};
+    ctx.font='14px serif'; ctx.textAlign='center'; ctx.textBaseline='alphabetic';
+    ctx.fillText(icons[ttype]||'🗼', cx, cy-20);
+}}
+
 function drawTowers() {{
-    for (const [key, t] of Object.entries(TOWERS)) {{
-        const [c,r] = key.split(',').map(Number);
-        const cx = c*C+C/2, cy = r*C+C/2;
-        drawPixelTower(cx, cy, t.type);
-        // Range indicator on hover handled separately
+    for (const [key,t] of Object.entries(TOWERS)) {{
+        const [c,r]=key.split(',').map(Number);
+        drawPixelTower(OX+c*C+C/2, OY+r*C+C/2, t.type);
     }}
-    // Highlight selected cell if placing
-    if (SELECTED) {{
-        canvas.style.cursor='crosshair';
-    }}
+    if(SELECTED) canvas.style.cursor='crosshair';
+    else          canvas.style.cursor='default';
+}}
+
+// ── Enemy sprites ─────────────────────────────────────────────────────────────
+function drawEnemy(e) {{
+    const px=OX+e.x*C+C/2, py=OY+e.y*C+C/2;
+    const sz=e.size==='boss'?22:e.size==='large'?18:e.size==='medium'?14:11;
+    ctx.save();
+    ctx.fillStyle='rgba(0,0,0,.4)';
+    ctx.beginPath(); ctx.ellipse(px,py+sz-2,sz*.7,4,0,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle=e.color; ctx.fillRect(px-sz/2,py-sz,sz,sz*1.2);
+    ctx.fillStyle=lighten(e.color,20); ctx.fillRect(px-sz*.4,py-sz*1.6,sz*.8,sz*.7);
+    ctx.fillStyle='#000';
+    ctx.fillRect(px-sz*.25,py-sz*1.4,3,3);
+    ctx.fillRect(px+sz*.1, py-sz*1.4,3,3);
+    ctx.fillStyle='#200000'; ctx.fillRect(px-sz*.8,py-sz*1.9,sz*1.6,5);
+    ctx.fillStyle=e.hp_pct>.5?'#27AE60':e.hp_pct>.25?'#F39C12':'#E74C3C';
+    ctx.fillRect(px-sz*.8,py-sz*1.9,sz*1.6*e.hp_pct,5);
+    ctx.restore();
 }}
 
 // ── Main render ───────────────────────────────────────────────────────────────
 function render() {{
-    ctx.clearRect(0,0,W,H);
+    ctx.clearRect(0,0,CW,CH);
     drawTerrain();
     drawTowers();
     enemies.forEach(drawEnemy);
+    drawHover();   // on top of everything
+    drawRulers();  // rulers always on top
 }}
 
-// ── Animate events ────────────────────────────────────────────────────────────
-const overlay = document.getElementById('overlay');
+// ── Animate events ─────────────────────────────────────────────────────────────
+const overlay=document.getElementById('overlay');
 
-function spawnHitFx(ex,ey,ttype) {{
+function spawnHitFx(ex,ey,ttype){{
     const px=ex*C+C/2, py=ey*C+C/2;
-    const el=document.createElement('div');
-    el.className='anim-hit';
-    const colors={{archer:'#8BC34A',mage:'#9C27B0',ballista:'#FF9800',frost:'#00BCD4',cannon:'#795548'}};
-    el.style.cssText=`width:20px;height:20px;background:${{colors[ttype]||'#FFF'}};
-        left:${{px-10}}px;top:${{py-10}}px;opacity:0.8;`;
-    overlay.appendChild(el);
-    setTimeout(()=>el.remove(),400);
+    const el=document.createElement('div'); el.className='anim-hit';
+    const cols={{archer:'#8BC34A',mage:'#9C27B0',ballista:'#FF9800',frost:'#00BCD4',cannon:'#795548'}};
+    el.style.cssText=`width:20px;height:20px;background:${{cols[ttype]||'#FFF'}};
+        left:${{px-10}}px;top:${{py-10}}px;opacity:.8;`;
+    overlay.appendChild(el); setTimeout(()=>el.remove(),400);
 }}
-
-function spawnKillFx(ex,ey) {{
+function spawnKillFx(ex,ey){{
     const px=ex*C+C/2, py=ey*C+C/2;
-    const el=document.createElement('div');
-    el.className='anim-kill';
+    const el=document.createElement('div'); el.className='anim-kill';
     el.textContent='💀';
     el.style.cssText=`left:${{px-10}}px;top:${{py-20}}px;`;
-    overlay.appendChild(el);
-    setTimeout(()=>el.remove(),800);
+    overlay.appendChild(el); setTimeout(()=>el.remove(),800);
 }}
-
-function spawnDmgNum(ex,ey,dmg) {{
-    const px=ex*C+C/2+random(-10,10), py=ey*C+C/2;
-    const el=document.createElement('div');
-    el.className='dmg-num';
+function spawnDmgNum(ex,ey,dmg){{
+    const px=ex*C+C/2+rnd(-10,10), py=ey*C+C/2;
+    const el=document.createElement('div'); el.className='dmg-num';
     el.textContent='-'+dmg;
     el.style.cssText=`left:${{px}}px;top:${{py}}px;`;
-    overlay.appendChild(el);
-    setTimeout(()=>el.remove(),600);
+    overlay.appendChild(el); setTimeout(()=>el.remove(),600);
 }}
 
-function random(a,b){{return Math.floor(Math.random()*(b-a))+a;}}
-
-// Process events
 EVENTS.forEach(ev=>{{
     if(ev.type==='hit'){{
         spawnHitFx(ev.ex,ev.ey,ev.tower_type);
@@ -961,46 +995,61 @@ EVENTS.forEach(ev=>{{
     }} else if(ev.type==='kill') {{
         spawnKillFx(ev.x,ev.y);
     }} else if(ev.type==='wave_clear') {{
-        // Screen flash
         const fl=document.createElement('div');
-        fl.style.cssText='position:absolute;inset:0;background:rgba(212,175,55,0.15);animation:hit-anim 0.5s ease-out forwards;pointer-events:none;';
-        overlay.appendChild(fl);
-        setTimeout(()=>fl.remove(),500);
+        fl.style.cssText='position:absolute;inset:0;background:rgba(212,175,55,.15);animation:hit-anim .5s ease-out forwards;pointer-events:none;';
+        overlay.appendChild(fl); setTimeout(()=>fl.remove(),500);
     }}
 }});
 
-// Click to place tower
-canvas.addEventListener('click', ev => {{
+// ── Mouse interaction ─────────────────────────────────────────────────────────
+const tip=document.getElementById('tooltip');
+
+canvas.addEventListener('mousemove', ev=>{{
     const rect=canvas.getBoundingClientRect();
-    const mx=(ev.clientX-rect.left)*(W/rect.width);
-    const my=(ev.clientY-rect.top)*(H/rect.height);
-    const c=Math.floor(mx/C), r=Math.floor(my/C);
-    if(c>=0&&c<COLS&&r>=0&&r<ROWS) {{
+    const mx=(ev.clientX-rect.left)*(CW/rect.width);
+    const my=(ev.clientY-rect.top)*(CH/rect.height);
+    const c=Math.floor((mx-OX)/C);
+    const r=Math.floor((my-OY)/C);
+    if(c>=0&&c<COLS&&r>=0&&r<ROWS){{
+        hoverC=c; hoverR=r;
         const key=c+','+r;
         const isPath=PATH_SET.has(key);
         const occupied=TOWERS[key];
-        if(!isPath&&!occupied&&SELECTED) {{
-            // Post to Streamlit
-            window.parent.postMessage({{type:'tower_place',key:key}},'*');
-        }}
+        let tipText='Col '+c+' · Linha '+r;
+        if(occupied)   tipText+=' — Torre: '+occupied.type;
+        else if(isPath) tipText+=' — Caminho (bloqueado)';
+        else if(SELECTED) tipText+=' — Clique para construir';
+        tip.textContent=tipText;
+        tip.style.display='block';
+        tip.style.left=(ev.clientX-rect.left+12)+'px';
+        tip.style.top=(ev.clientY-rect.top+12)+'px';
+    }} else {{
+        hoverC=-1; hoverR=-1;
+        tip.style.display='none';
     }}
+    render();
 }});
 
-// Tooltip
-canvas.addEventListener('mousemove', ev => {{
-    const tip=document.getElementById('tooltip');
+canvas.addEventListener('mouseleave',()=>{{
+    hoverC=-1; hoverR=-1;
+    tip.style.display='none';
+    render();
+}});
+
+// ── CLICK TO PLACE — sends col & row via URL hash → Streamlit detects it ─────
+canvas.addEventListener('click', ev=>{{
+    if(!SELECTED) return;
     const rect=canvas.getBoundingClientRect();
-    const mx=(ev.clientX-rect.left)*(W/rect.width);
-    const my=(ev.clientY-rect.top)*(H/rect.height);
-    const c=Math.floor(mx/C), r=Math.floor(my/C);
+    const mx=(ev.clientX-rect.left)*(CW/rect.width);
+    const my=(ev.clientY-rect.top)*(CH/rect.height);
+    const c=Math.floor((mx-OX)/C);
+    const r=Math.floor((my-OY)/C);
+    if(c<0||c>=COLS||r<0||r>=ROWS) return;
     const key=c+','+r;
-    if(TOWERS[key]){{
-        const t=TOWERS[key];
-        tip.textContent=t.type.toUpperCase()+' @ ('+c+','+r+')';
-        tip.style.display='block';
-        tip.style.left=(ev.clientX-rect.left+10)+'px';
-        tip.style.top=(ev.clientY-rect.top+10)+'px';
-    }} else {{ tip.style.display='none'; }}
+    if(PATH_SET.has(key)||TOWERS[key]) return;
+    // Write into a hidden input that Streamlit can read via query_params
+    // We use the parent window location hash as the communication channel
+    window.parent.location.hash='place_'+c+'_'+r+'_'+Date.now();
 }});
 
 render();
@@ -1085,10 +1134,69 @@ def screen_game():
     # ── Main layout: arena + sidebar ─────────────────────────────────────────
     arena_col, side_col = st.columns([4, 1])
 
+    # ── Read click-to-place from URL hash set by iframe ─────────────────────
+    # JS writes window.parent.location.hash = 'place_C_R_timestamp'
+    # Streamlit exposes fragment via st.query_params after the '#'
+    raw_hash = st.query_params.get("place", "")
+    if not raw_hash:
+        # Try reading the hash fragment via a JS trick stored in query param
+        pass
+
+    # Inject a tiny script that copies hash → query param on every hash change
+    # This bridges the iframe → Streamlit gap reliably
+    st.markdown("""
+    <script>
+    (function(){
+        function syncHash(){
+            const h = window.location.hash.replace('#','');
+            if(h.startsWith('place_')){
+                const parts = h.split('_');
+                if(parts.length>=4){
+                    const c=parts[1], r=parts[2];
+                    const url = new URL(window.location.href);
+                    url.searchParams.set('place', c+'_'+r);
+                    window.history.replaceState(null,'', url.toString());
+                    // Trigger Streamlit rerun by submitting a tiny form change
+                    window.location.href = url.toString();
+                }
+            }
+        }
+        window.addEventListener('hashchange', syncHash);
+    })();
+    </script>
+    """, unsafe_allow_html=True)
+
+    # Check query param set by the hash bridge
+    place_param = st.query_params.get("place", "")
+    if place_param and ss.selected_tower:
+        parts = place_param.split("_")
+        if len(parts) == 2:
+            try:
+                pc, pr = int(parts[0]), int(parts[1])
+                key = f"{pc},{pr}"
+                path_set = set(map(tuple, BASE_PATH))
+                if (pc, pr) not in path_set and key not in ss.towers:
+                    cost = get_tower_cost(ss.selected_tower)
+                    if ss.gold >= cost:
+                        ss.towers[key] = {
+                            "type": ss.selected_tower,
+                            **{k: v for k, v in TOWER_TYPES[ss.selected_tower].items()},
+                        }
+                        ss.gold -= cost
+                        ss.combat_log.append(
+                            f"🏰 {TOWER_TYPES[ss.selected_tower]['name']} erguida em ({pc},{pr})")
+                        ss.selected_tower = None
+                        # Clear the param
+                        st.query_params.pop("place")
+                        st.rerun()
+            except Exception:
+                pass
+
     with arena_col:
         arena_html = build_arena_html()
         from streamlit.components.v1 import html as st_html
-        st_html(arena_html, height=GRID_H * CELL + 10, scrolling=False)
+        ARENA_H = RULER + GRID_H * CELL + 4
+        st_html(arena_html, height=ARENA_H, scrolling=False)
 
     with side_col:
         # Tower shop
@@ -1105,42 +1213,71 @@ def screen_game():
                 <div class='tc-cost'>💰 {cost}g</div>
                 <div class='tc-desc'>{td['desc']}</div>
             </div>""", unsafe_allow_html=True)
-            if st.button(f"{'✓' if is_sel else 'Selec.'}", key=f"sel_{ttype}",
+            if st.button(f"{'✓ Selecionado' if is_sel else 'Selecionar'}", key=f"sel_{ttype}",
                          disabled=not can_afford, use_container_width=True):
                 ss.selected_tower = None if is_sel else ttype
                 st.rerun()
 
         st.markdown("<hr>", unsafe_allow_html=True)
 
-        # Tower placement helper
+        # ── Tower placement panel ─────────────────────────────────────────────
         if ss.selected_tower:
             td = TOWER_TYPES[ss.selected_tower]
-            st.markdown(f"""<div style='font-size:.65rem;color:#D4AF37;font-family:Cinzel,serif;
-                text-align:center;'>Clique no mapa<br>para construir<br>{td['emoji']} {td['name']}</div>""",
-                unsafe_allow_html=True)
+            st.markdown(f"""
+            <div style='background:#1A1A2E;border:1px solid #D4AF37;border-radius:6px;
+                        padding:8px;margin-bottom:6px;text-align:center;'>
+                <div style='font-size:.7rem;color:#D4AF37;font-family:Cinzel,serif;
+                            font-weight:700;margin-bottom:4px;'>
+                    {td['emoji']} {td['name']} selecionado
+                </div>
+                <div style='font-size:.6rem;color:#7A7A8A;font-family:Cinzel,serif;'>
+                    Passe o mouse no mapa para ver as coordenadas e clique para construir,
+                    ou use o formulário abaixo.
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
 
-            # Manual grid placement (fallback for iframe click)
-            st.markdown("<div class='panel-title' style='margin-top:8px;'>📍 Posição</div>", unsafe_allow_html=True)
-            col_in = st.number_input("Coluna", 0, GRID_W-1, 3, key="pc")
-            row_in = st.number_input("Linha", 0, GRID_H-1, 2, key="pr")
-            if st.button("🔨 Construir", use_container_width=True):
-                key = f"{col_in},{row_in}"
-                path_set = set(map(tuple, BASE_PATH))
-                if (col_in, row_in) not in path_set and key not in ss.towers:
-                    cost = get_tower_cost(ss.selected_tower)
-                    if ss.gold >= cost:
-                        ss.towers[key] = {
-                            "type": ss.selected_tower,
-                            **{k: v for k, v in TOWER_TYPES[ss.selected_tower].items()},
-                        }
-                        ss.gold -= cost
-                        ss.combat_log.append(f"🏰 {TOWER_TYPES[ss.selected_tower]['name']} erguida em ({col_in},{row_in})")
-                        ss.selected_tower = None
-                        st.rerun()
-                    else:
-                        st.error("Sem ouro!")
-                else:
-                    st.error("Posição inválida!")
+            st.markdown("<div class='panel-title'>📍 Construir em</div>", unsafe_allow_html=True)
+
+            # Two compact columns for col/row inputs
+            ci1, ci2 = st.columns(2)
+            with ci1:
+                col_in = st.number_input("Col", 0, GRID_W-1, 3, key="pc",
+                                         help="Coluna (0–13) — veja a régua superior do mapa")
+            with ci2:
+                row_in = st.number_input("Lin", 0, GRID_H-1, 2, key="pr",
+                                         help="Linha (0–9) — veja a régua lateral do mapa")
+
+            # Live validity feedback
+            key_preview = f"{col_in},{row_in}"
+            path_set_preview = set(map(tuple, BASE_PATH))
+            is_path_cell = (col_in, row_in) in path_set_preview
+            is_occupied  = key_preview in ss.towers
+            cell_ok = not is_path_cell and not is_occupied
+
+            if is_path_cell:
+                st.markdown("<div style='font-size:.62rem;color:#E74C3C;font-family:Cinzel,serif;'>⛔ Célula no caminho!</div>", unsafe_allow_html=True)
+            elif is_occupied:
+                st.markdown("<div style='font-size:.62rem;color:#E74C3C;font-family:Cinzel,serif;'>⛔ Já há uma torre!</div>", unsafe_allow_html=True)
+            else:
+                st.markdown(f"<div style='font-size:.62rem;color:#27AE60;font-family:Cinzel,serif;'>✅ Posição livre ({col_in},{row_in})</div>", unsafe_allow_html=True)
+
+            cost_now = get_tower_cost(ss.selected_tower)
+            if st.button(f"🔨 Construir — {cost_now}g", use_container_width=True,
+                         disabled=not cell_ok or ss.gold < cost_now):
+                ss.towers[key_preview] = {
+                    "type": ss.selected_tower,
+                    **{k: v for k, v in TOWER_TYPES[ss.selected_tower].items()},
+                }
+                ss.gold -= cost_now
+                ss.combat_log.append(
+                    f"🏰 {TOWER_TYPES[ss.selected_tower]['name']} erguida em ({col_in},{row_in})")
+                ss.selected_tower = None
+                st.rerun()
+
+            if st.button("❌ Cancelar", use_container_width=True):
+                ss.selected_tower = None
+                st.rerun()
 
         st.markdown("<hr>", unsafe_allow_html=True)
 
