@@ -167,4 +167,24 @@ tower_siege.py
 
 Sugestões de novos tipos de torre, inimigos, melhorias roguelike ou otimizações no sistema de ticks são muito bem-vindas! Abra uma issue ou pull request.
 
+---
+
+## 📋 Changelog
+
+### v1.2 — Mapa Aleatório + Balanceamento + Clique Funcional
+- **HP dos inimigos aumentado ≈2.5×** — combates duram muito mais e exigem mais estratégia de posicionamento
+- **Escala por onda reduzida de +22% → +15%** — ramp mais gradual
+- **Mapa gerado aleatoriamente** a cada novo jogo via semente (`map_seed`), criando caminhos únicos com serpentinas e desvios verticais aleatórios
+- **Clique no mapa funciona** — ao clicar numa célula de grama válida com torre selecionada, a URL do pai é atualizada com `?_pc=C&_pr=R`; o Streamlit detecta via `st.query_params` e constrói instantaneamente
+- Número do mapa exibido no HUD (ex: `🗺️ Mapa #42837`)
+
+### v1.1 — Réguas de Coordenadas + Hover
+- Réguas douradas de col/linha nas bordas do mapa
+- Highlight dourado/vermelho no hover com coordenada da célula
+- Formulário com validação em tempo real
+
+### v1.0 — Lançamento inicial
+- Tower Defense + Roguelike em Streamlit
+- 5 torres, 6 inimigos, 10 melhorias, 15 ondas
+
 **Desenvolvido com ⚔️ e 🐍 — inspirado em Dark Castle: Ascensão por Gustavo Meneses.**
