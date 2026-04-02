@@ -1,5 +1,9 @@
 import streamlit as st
-import random, math, json, time
+import streamlit.components.v1 as st_components
+import random, math, json, time, os
+
+_ARENA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "components", "arena")
+_arena_component = st_components.declare_component("arena", path=_ARENA_DIR)
 
 st.set_page_config(
     page_title="Tower Siege: Ruínas Eternas",
@@ -16,11 +20,11 @@ CELL  = 52
 RULER = 22
 
 TOWER_TYPES = {
-    "archer":   {"name":"Arqueiro","emoji":"🏹","cost":80,  "damage":18,"range":3,  "fire_rate":1.2,"color":"#8BC34A","desc":"Ataque rápido, alcance médio","pixel_color":"#5D8A23"},
-    "mage":     {"name":"Mago",    "emoji":"🔮","cost":130, "damage":35,"range":2.5,"fire_rate":0.7,"color":"#9C27B0","desc":"Dano em área, lento",          "pixel_color":"#6A0080"},
-    "ballista": {"name":"Balista", "emoji":"⚡","cost":200, "damage":65,"range":4,  "fire_rate":0.5,"color":"#FF9800","desc":"Dano perfurante brutal",        "pixel_color":"#B36000"},
-    "frost":    {"name":"Gelo",    "emoji":"❄️","cost":110, "damage":12,"range":2,  "fire_rate":1.0,"color":"#00BCD4","desc":"Lentifica inimigos -40%",       "pixel_color":"#007A8C"},
-    "cannon":   {"name":"Canhão",  "emoji":"💣","cost":160, "damage":50,"range":2.5,"fire_rate":0.6,"color":"#795548","desc":"Explosão 3x3, lento",           "pixel_color":"#4E342E"},
+    "archer":   {"name":"Arqueiro","emoji":"🏹","cost":80,  "damage":45, "range":3.5,"fire_rate":6.0,"color":"#8BC34A","desc":"Ataque rápido, alcance médio","pixel_color":"#5D8A23","proj_speed":12,"proj_color":"#C8E6A0","proj_size":3},
+    "mage":     {"name":"Mago",    "emoji":"🔮","cost":130, "damage":95, "range":2.5,"fire_rate":2.0,"color":"#9C27B0","desc":"Dano em área, lento",          "pixel_color":"#6A0080","proj_speed":8,"proj_color":"#CE93D8","proj_size":6},
+    "ballista": {"name":"Balista", "emoji":"⚡","cost":200, "damage":190,"range":5.0,"fire_rate":1.0,"color":"#FF9800","desc":"Dano perfurante brutal",        "pixel_color":"#B36000","proj_speed":16,"proj_color":"#FFE0B2","proj_size":4},
+    "frost":    {"name":"Gelo",    "emoji":"❄️","cost":110, "damage":20, "range":2.5,"fire_rate":4.0,"color":"#00BCD4","desc":"Lentifica inimigos -40%",       "pixel_color":"#007A8C","proj_speed":10,"proj_color":"#80DEEA","proj_size":5},
+    "cannon":   {"name":"Canhão",  "emoji":"💣","cost":160, "damage":130,"range":2.5,"fire_rate":1.5,"color":"#795548","desc":"Explosão 3x3, lento",           "pixel_color":"#4E342E","proj_speed":7,"proj_color":"#A1887F","proj_size":7},
 }
 
 ENEMY_TYPES = {
@@ -28,7 +32,7 @@ ENEMY_TYPES = {
     "orc":      {"name":"Orc",      "hp_base":480,  "speed":0.8,"reward":25, "color":"#8D6E63","size":"medium"},
     "skeleton": {"name":"Esqueleto","hp_base":220,  "speed":1.2,"reward":18, "color":"#ECEFF1","size":"medium"},
     "troll":    {"name":"Troll",    "hp_base":1100, "speed":0.5,"reward":55, "color":"#33691E","size":"large"},
-    "wraith":   {"name":"Espectro", "hp_base":320,  "speed":1.8,"reward":35, "color":"#7E57C2","size":"small"},
+    "wraith":   {"name":"Espectro", "hp_base":320,  "speed":1.5,"reward":35, "color":"#7E57C2","size":"small"},
     "dragon":   {"name":"Dragão",   "hp_base":2400, "speed":0.9,"reward":150,"color":"#F44336","size":"boss"},
 }
 
@@ -46,34 +50,39 @@ ROGUELIKE_UPGRADES = [
 ]
 
 # ══════════════════════════════════════════════════════════════════════════════
-# RANDOM MAP GENERATOR
+# GRID MATRIX & PATH GENERATOR
 # ══════════════════════════════════════════════════════════════════════════════
-def generate_path(seed: int):
-    rng  = random.Random(seed)
-    COLS, ROWS = GRID_W, GRID_H
-    entry_row = rng.randint(1, ROWS-2)
-    exit_row  = rng.randint(1, ROWS-2)
-    path, visited = [], set()
+CELL_EMPTY = 0
+CELL_PATH  = 1
+# Tower cells store the type string: "archer", "mage", etc.
+
+def generate_grid(seed):
+    """Build GRID_H×GRID_W matrix with algorithmic path. Returns (grid, path)."""
+    rng = random.Random(seed)
+    grid = [[CELL_EMPTY]*GRID_W for _ in range(GRID_H)]
+    entry_row = rng.randint(2, GRID_H-3)
+    exit_row  = rng.randint(2, GRID_H-3)
+    path = []
     col, row = 0, entry_row
-    path.append((col, row)); visited.add((col, row))
-    while col < COLS-1:
-        if rng.random() < 0.45 and col < COLS-2:
+    grid[row][col] = CELL_PATH; path.append((col, row))
+    while col < GRID_W - 1:
+        if rng.random() < 0.45 and col < GRID_W - 2:
             d = rng.choice([-1, 1])
-            for _ in range(rng.randint(1, 3)):
-                nr = row+d
-                if 0 < nr < ROWS-1 and (col, nr) not in visited:
-                    row = nr; path.append((col, row)); visited.add((col, row))
+            for _ in range(rng.randint(1, 2)):
+                nr = row + d
+                if 1 <= nr <= GRID_H-2 and grid[nr][col] == CELL_EMPTY:
+                    row = nr; grid[row][col] = CELL_PATH; path.append((col, row))
                 else: break
         col += 1
-        if (col, row) not in visited:
-            path.append((col, row)); visited.add((col, row))
+        if grid[row][col] == CELL_EMPTY:
+            grid[row][col] = CELL_PATH; path.append((col, row))
     while row != exit_row:
         d = 1 if exit_row > row else -1
-        nr = row+d
-        if 0 < nr < ROWS-1 and (col, nr) not in visited:
-            row = nr; path.append((col, row)); visited.add((col, row))
+        nr = row + d
+        if 1 <= nr <= GRID_H-2 and grid[nr][col] == CELL_EMPTY:
+            row = nr; grid[row][col] = CELL_PATH; path.append((col, row))
         else: break
-    return path
+    return grid, path
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SESSION STATE
@@ -81,21 +90,26 @@ def generate_path(seed: int):
 def init_state():
     defaults = {
         "screen":"menu","wave":0,"gold":200,"lives":20,"score":0,
-        "towers":{},"enemies":[],"selected_tower":None,"upgrades":[],
-        "combat_log":[],"wave_active":False,"enemies_spawned":0,
-        "enemies_to_spawn":0,"pending_upgrades":[],"kills":0,
-        "max_waves":15,"anim_events":[],"tick_counter":0,
-        "map_seed":42,
-        # click bridge — col,row written by canvas click → read on next render
-        "click_col": -1, "click_row": -1,
+        "grid":None,"path":None,"enemies":[],"selected_tower":None,
+        "upgrades":[],"combat_log":[],"wave_active":False,
+        "enemies_spawned":0,"enemies_to_spawn":0,"pending_upgrades":[],
+        "kills":0,"max_waves":15,"anim_events":[],"tick_counter":0,
+        "map_seed":42,"click_col":-1,"click_row":-1,
+        "projectiles":[],"tower_cooldowns":{},"tower_targets":{},"game_tick":0,
     }
     for k,v in defaults.items():
         if k not in st.session_state: st.session_state[k]=v
+    if st.session_state.grid is None:
+        g, p = generate_grid(st.session_state.map_seed)
+        st.session_state.grid = g; st.session_state.path = p
 
 init_state()
 
-def current_path():
-    return generate_path(st.session_state.map_seed)
+def current_path(): return st.session_state.path
+def current_grid(): return st.session_state.grid
+def tower_count():
+    g=current_grid()
+    return sum(1 for r in range(GRID_H) for c in range(GRID_W) if isinstance(g[r][c],str))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # GAME LOGIC
@@ -105,12 +119,15 @@ def get_wave_enemies(wave):
     elif wave<=6: pool=["goblin"]*5+["skeleton"]*4+["orc"]*2
     elif wave<=9: pool=["goblin"]*3+["skeleton"]*4+["orc"]*4+["wraith"]*2
     elif wave<=12:pool=["skeleton"]*3+["orc"]*5+["wraith"]*3+["troll"]*1
-    else:         pool=["orc"]*4+["wraith"]*4+["troll"]*2+["dragon"]*1
-    count=8+wave*2
+    else:         pool=["orc"]*5+["wraith"]*4+["troll"]*2+["dragon"]*1
+    # Waves 13-15 count capped at 30 to avoid overwhelming leak rate
+    base_count = 8 + wave * 2
+    count = min(base_count, 30) if wave >= 13 else base_count
     return [random.choice(pool) for _ in range(count)]
 
 def spawn_enemy(etype,wave):
-    scale=1+(wave-1)*0.15
+    # +12% HP per wave (was +15%) — less punishing in late game
+    scale=1+(wave-1)*0.12
     base=ENEMY_TYPES[etype]; hp=int(base["hp_base"]*scale)
     gold_mult=1.5 if "gold_rush" in st.session_state.upgrades else 1.0
     return {"id":random.randint(10000,99999),"type":etype,"name":base["name"],
@@ -140,17 +157,15 @@ def get_tower_cost(ttype):
     return int(base*0.80) if "arcane_nexus" in st.session_state.upgrades else base
 
 def place_tower(col, row):
-    """Core placement logic — called from both button and click bridge."""
+    """Place tower — writes tower type string into grid[row][col]."""
     ss = st.session_state
     if not ss.selected_tower: return False
-    path     = current_path()
-    path_set = set(map(tuple, path))
-    key      = f"{col},{row}"
-    if (col,row) in path_set or key in ss.towers: return False
+    if col < 0 or col >= GRID_W or row < 0 or row >= GRID_H: return False
+    grid = current_grid()
+    if grid[row][col] != CELL_EMPTY: return False
     cost = get_tower_cost(ss.selected_tower)
     if ss.gold < cost: return False
-    ss.towers[key] = {"type":ss.selected_tower,
-                      **{k:v for k,v in TOWER_TYPES[ss.selected_tower].items()}}
+    grid[row][col] = ss.selected_tower
     ss.gold -= cost
     ss.combat_log.append(f"🏰 {TOWER_TYPES[ss.selected_tower]['name']} erguida em ({col},{row})")
     ss.selected_tower = None
@@ -160,49 +175,106 @@ def place_tower(col, row):
 def tick_game():
     ss=st.session_state
     if not ss.wave_active: return
+    ss.game_tick+=1
     path=current_path(); path_len=len(path)-1; events=[]
+    # ── Spawn enemies ──
     if ss.enemies_spawned<ss.enemies_to_spawn:
         ss.tick_counter+=1
         if ss.tick_counter%4==0:
             ss.enemies.append(spawn_enemy(ss._spawn_queue[ss.enemies_spawned],ss.wave))
             ss.enemies_spawned+=1
+    # ── Move enemies ──
     alive=[]
     for e in ss.enemies:
         if not e["alive"]: continue
         if e["reached_end"]: ss.lives=max(0,ss.lives-1); continue
-        e["progress"]+=e["speed"]*e["slow"]*0.12
+        e["progress"]+=e["speed"]*e["slow"]*0.09
         while e["progress"]>=1.0 and e["path_idx"]<path_len-1:
             e["progress"]-=1.0; e["path_idx"]+=1
         if e["path_idx"]>=path_len-1 and e["progress"]>=1.0:
             e["reached_end"]=True; continue
         e["slow"]=1.0; alive.append(e)
     ss.enemies=alive
-    for key,tower in ss.towers.items():
-        tc,tr=map(int,key.split(","))
-        t=apply_upgrades_to_tower(tower)
-        targets=[e for e in ss.enemies if e["alive"] and dist(tc,tr,*path[e["path_idx"]])<=t["range"]]
-        if not targets: continue
-        targets.sort(key=lambda e:e["path_idx"]+e["progress"],reverse=True)
-        for target in targets[:t.get("extra_targets",1)]:
-            ec,er=path[target["path_idx"]]
-            if t["type"]=="frost":
-                target["slow"]=1.0-t.get("slow_amount",0.40); dmg=t["damage"]
-            elif t["type"] in ("cannon","mage"):
-                dmg=t["damage"]
-                for nb in ss.enemies:
-                    nc,nr=path[nb["path_idx"]]
-                    if nb["id"]!=target["id"] and dist(ec,er,nc,nr)<=1.5:
-                        nb["hp"]-=int(dmg*0.6)
-                        if nb["hp"]<=0:
-                            nb["alive"]=False; ss.gold+=nb["reward"]; ss.score+=nb["reward"]*10; ss.kills+=1
-            else: dmg=t["damage"]
-            target["hp"]-=dmg
-            events.append({"type":"hit","tower_type":t["type"],"ex":ec,"ey":er,"dmg":dmg})
-            if target["hp"]<=0:
-                target["alive"]=False; ss.gold+=target["reward"]; ss.score+=target["reward"]*10; ss.kills+=1
-                events.append({"type":"kill","x":ec,"y":er})
+    # ── Towers fire projectiles ──
+    grid=current_grid()
+    _tw=[(tc,tr,{**TOWER_TYPES[grid[tr][tc]],"type":grid[tr][tc]}) for tr in range(GRID_H) for tc in range(GRID_W) if isinstance(grid[tr][tc],str)]
+    for tc,tr,_td in _tw:
+        t=apply_upgrades_to_tower(_td)
+        tkey=f"{tc},{tr}"
+        cooldown=1.0/t["fire_rate"]
+        last_fire=ss.tower_cooldowns.get(tkey,-9999)  # fire immediately on first opportunity
+        ticks_per_sec=24
+        if (ss.game_tick-last_fire)<cooldown*ticks_per_sec: continue
+        # TARGET LOCKING: keep firing at same enemy until dead or out of range
+        locked_id=ss.tower_targets.get(tkey)
+        target=None
+        if locked_id is not None:
+            tgt=next((e for e in ss.enemies if e["id"]==locked_id and e["alive"]),None)
+            if tgt and dist(tc,tr,*path[tgt["path_idx"]])<=t["range"]:
+                target=tgt
+            else:
+                ss.tower_targets.pop(tkey,None)
+        if target is None:
+            candidates=[e for e in ss.enemies if e["alive"] and dist(tc,tr,*path[e["path_idx"]])<=t["range"]]
+            if not candidates: continue
+            candidates.sort(key=lambda e:e["path_idx"]+e["progress"],reverse=True)
+            target=candidates[0]
+            ss.tower_targets[tkey]=target["id"]
+        pi=min(target["path_idx"],len(path)-2)
+        prog=max(0.0,min(1.0,target["progress"]))
+        c1,r1=path[pi]; c2,r2=path[min(pi+1,len(path)-1)]
+        ex=c1+(c2-c1)*prog; ey=r1+(r2-r1)*prog
+        proj={"id":random.randint(10000,99999),"tower_type":t["type"],
+              "sx":float(tc),"sy":float(tr),"x":float(tc),"y":float(tr),
+              "tx":ex,"ty":ey,"target_id":target["id"],
+              "speed":t.get("proj_speed",6),"damage":t["damage"],
+              "color":t.get("proj_color","#FFF"),"size":t.get("proj_size",4),
+              "effects":[],"alive":True}
+        if t["type"]=="frost": proj["effects"].append({"type":"slow","amount":t.get("slow_amount",0.40)})
+        if t["type"] in ("cannon","mage"): proj["effects"].append({"type":"splash","radius":1.5,"ratio":0.6})
+        ss.projectiles.append(proj)
+        ss.tower_cooldowns[tkey]=ss.game_tick
+    # ── Move projectiles + on-hit ──
+    alive_proj=[]
+    for p in ss.projectiles:
+        if not p["alive"]: continue
+        # Update target position (homing)
+        tgt=next((e for e in ss.enemies if e["id"]==p["target_id"] and e["alive"]),None)
+        if tgt:
+            pi=min(tgt["path_idx"],len(path)-2); prog=max(0.0,min(1.0,tgt["progress"]))
+            c1,r1=path[pi]; c2,r2=path[min(pi+1,len(path)-1)]
+            p["tx"]=c1+(c2-c1)*prog; p["ty"]=r1+(r2-r1)*prog
+        # Move toward target
+        dx=p["tx"]-p["x"]; dy=p["ty"]-p["y"]
+        d=math.sqrt(dx*dx+dy*dy)
+        step=p["speed"]*0.10  # movement per tick
+        if d<=step or d<0.3:
+            # ── HIT ──
+            if tgt and tgt["alive"]:
+                dmg=p["damage"]
+                for eff in p["effects"]:
+                    if eff["type"]=="slow": tgt["slow"]=1.0-eff["amount"]
+                    if eff["type"]=="splash":
+                        for nb in ss.enemies:
+                            if nb["id"]!=tgt["id"] and nb["alive"]:
+                                nc,nr=path[nb["path_idx"]]
+                                if dist(p["tx"],p["ty"],nc,nr)<=eff["radius"]:
+                                    nb["hp"]-=int(dmg*eff["ratio"])
+                                    if nb["hp"]<=0:
+                                        nb["alive"]=False; ss.gold+=nb["reward"]; ss.score+=nb["reward"]*10; ss.kills+=1
+                tgt["hp"]-=dmg
+                events.append({"type":"hit","tower_type":p["tower_type"],"ex":p["tx"],"ey":p["ty"],"dmg":dmg})
+                if tgt["hp"]<=0:
+                    tgt["alive"]=False; ss.gold+=tgt["reward"]; ss.score+=tgt["reward"]*10; ss.kills+=1
+                    events.append({"type":"kill","x":p["tx"],"y":p["ty"]})
+            p["alive"]=False
+        else:
+            p["x"]+=dx/d*step; p["y"]+=dy/d*step
+            alive_proj.append(p)
+    ss.projectiles=alive_proj
     ss.enemies=[e for e in ss.enemies if e["alive"]]
-    if ss.enemies_spawned>=ss.enemies_to_spawn and len(ss.enemies)==0:
+    # ── Wave end check ──
+    if ss.enemies_spawned>=ss.enemies_to_spawn and len(ss.enemies)==0 and len(ss.projectiles)==0:
         ss.wave_active=False; bonus=40+ss.wave*15; ss.gold+=bonus; ss.score+=bonus*5
         events.append({"type":"wave_clear"})
         ss.combat_log.append(f"🏆 Onda {ss.wave} completa! +{bonus}g de bônus")
@@ -222,10 +294,11 @@ def start_wave():
     ss.combat_log.append(f"⚔️ Onda {ss.wave} iniciada! {len(queue)} inimigos se aproximam...")
 
 def reset_game():
-    keys=["wave","gold","lives","score","towers","enemies","selected_tower",
+    keys=["wave","gold","lives","score","grid","path","enemies","selected_tower",
           "upgrades","combat_log","wave_active","enemies_spawned","enemies_to_spawn",
           "pending_upgrades","kills","anim_events","tick_counter",
-          "click_col","click_row","_spawn_queue"]
+          "click_col","click_row","_spawn_queue",
+          "projectiles","tower_cooldowns","tower_targets","game_tick","_last_click_ts"]
     for k in keys: st.session_state.pop(k,None)
     st.session_state.map_seed=random.randint(1,99999)
     init_state(); st.session_state.screen="game"
@@ -303,256 +376,6 @@ def inject_global_css():
     </style>""", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ARENA HTML — responsive canvas with click bridge via query params
-# ══════════════════════════════════════════════════════════════════════════════
-def build_arena_html(path):
-    ss=st.session_state
-    C,R=CELL,RULER; COLS,ROWS=GRID_W,GRID_H
-    CW=R+COLS*C; CH=R+ROWS*C; OX,OY=R,R
-
-    towers_js=json.dumps({k:{"type":v["type"]} for k,v in ss.towers.items()})
-    elist=[]
-    for e in ss.enemies:
-        pi=min(e["path_idx"],len(path)-2); t=max(0.0,min(1.0,e["progress"]))
-        c1,r1=path[pi]; c2,r2=path[min(pi+1,len(path)-1)]
-        elist.append({"id":e["id"],"x":c1+(c2-c1)*t,"y":r1+(r2-r1)*t,
-                      "hp_pct":max(0,e["hp"]/e["hp_max"]),"color":e["color"],"size":e["size"]})
-    enemies_js=json.dumps(elist)
-    path_js=json.dumps(path); events_js=json.dumps(ss.anim_events)
-    selected=ss.selected_tower or ""
-    tcolors_js=json.dumps({"archer":"#5D8A23","mage":"#6A0080","ballista":"#B36000","frost":"#007A8C","cannon":"#4E342E"})
-
-    return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<style>
-*{{margin:0;padding:0;box-sizing:border-box;}}
-html,body{{background:#0A0A0F;overflow:hidden;font-family:monospace;user-select:none;touch-action:none;}}
-#w{{position:relative;width:{CW}px;height:{CH}px;}}
-canvas{{display:block;position:absolute;top:0;left:0;image-rendering:pixelated;}}
-#ov{{position:absolute;pointer-events:none;top:{OY}px;left:{OX}px;width:{COLS*C}px;height:{ROWS*C}px;}}
-.ah{{position:absolute;border-radius:50%;pointer-events:none;animation:ha .4s ease-out forwards;}}
-@keyframes ha{{0%{{transform:scale(.2);opacity:1;}}100%{{transform:scale(1.8);opacity:0;}}}}
-.ak{{position:absolute;pointer-events:none;font-size:16px;animation:ka .8s ease-out forwards;}}
-@keyframes ka{{0%{{transform:translateY(0);opacity:1;}}100%{{transform:translateY(-40px);opacity:0;}}}}
-.dn{{position:absolute;color:#FF4444;font-size:13px;font-weight:bold;pointer-events:none;
-    text-shadow:0 0 4px #000;animation:da .6s ease-out forwards;}}
-@keyframes da{{0%{{transform:translateY(0) scale(1);opacity:1;}}100%{{transform:translateY(-30px) scale(.8);opacity:0;}}}}
-#tip{{position:absolute;background:rgba(10,10,20,.94);border:1px solid #D4AF37;border-radius:4px;
-    padding:4px 8px;font-size:11px;color:#E8DCC8;pointer-events:none;display:none;z-index:200;white-space:nowrap;}}
-#flash{{position:absolute;inset:0;background:rgba(212,175,55,.18);opacity:0;pointer-events:none;
-    transition:opacity .1s;border-radius:3px;}}
-</style></head><body>
-<div id="w">
-  <canvas id="c" width="{CW}" height="{CH}"></canvas>
-  <div id="ov"></div>
-  <div id="flash"></div>
-  <div id="tip"></div>
-</div>
-<script>
-const COLS={COLS},ROWS={ROWS},C={C},R={R},CW={CW},CH={CH},OX={OX},OY={OY};
-const cv=document.getElementById('c'),ctx=cv.getContext('2d');
-const PATH={path_js},PS=new Set(PATH.map(p=>p[0]+','+p[1]));
-const TW={towers_js},TC={tcolors_js},EN={enemies_js},EV={events_js};
-const SEL="{selected}";
-
-function lt(h,a){{
-    const n=parseInt(h.slice(1),16);
-    return'#'+[((n>>16)&255)+a,((n>>8)&255)+a,(n&255)+a]
-        .map(v=>''+Math.min(255,Math.max(0,v)).toString(16).padStart(2,'0')).join('');
-}}
-function rn(a,b){{return Math.floor(Math.random()*(b-a))+a;}}
-
-function drawRulers(){{
-    ctx.fillStyle='#12121A';ctx.fillRect(0,0,CW,R);ctx.fillRect(0,0,R,CH);
-    ctx.fillStyle='#1A1A2E';ctx.fillRect(0,0,R,R);
-    ctx.fillStyle='#D4AF37';ctx.font='bold 8px monospace';ctx.textAlign='center';ctx.textBaseline='middle';
-    ctx.fillText('C\\\\R',R/2,R/2);
-    for(let c=0;c<COLS;c++){{
-        ctx.fillStyle=c%2?'#141420':'#1A1A2E';ctx.fillRect(OX+c*C,0,C,R);
-        ctx.fillStyle='#D4AF37';ctx.font='bold 10px monospace';
-        ctx.textAlign='center';ctx.textBaseline='middle';
-        ctx.fillText(c,OX+c*C+C/2,R/2);
-    }}
-    for(let r=0;r<ROWS;r++){{
-        ctx.fillStyle=r%2?'#141420':'#1A1A2E';ctx.fillRect(0,OY+r*C,R,C);
-        ctx.fillStyle='#D4AF37';ctx.font='bold 10px monospace';
-        ctx.textAlign='center';ctx.textBaseline='middle';
-        ctx.fillText(r,R/2,OY+r*C+C/2);
-    }}
-    ctx.strokeStyle='#2A2A4A';ctx.lineWidth=1;
-    ctx.strokeRect(.5,.5,CW-1,CH-1);
-    ctx.beginPath();ctx.moveTo(R,0);ctx.lineTo(R,CH);ctx.moveTo(0,R);ctx.lineTo(CW,R);ctx.stroke();
-}}
-
-function drawTerrain(){{
-    for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){{
-        const k=c+','+r,ip=PS.has(k),x=OX+c*C,y=OY+r*C;
-        if(ip){{
-            ctx.fillStyle='#C8A96E';ctx.fillRect(x,y,C,C);
-            ctx.fillStyle='rgba(100,70,30,.3)';
-            for(let px=2;px<C;px+=8)for(let py=2;py<C;py+=8)ctx.fillRect(x+px,y+py,2,2);
-            ctx.strokeStyle='rgba(160,120,50,.4)';ctx.lineWidth=1;ctx.strokeRect(x+.5,y+.5,C-1,C-1);
-        }}else{{
-            const dk=(c+r)%2;
-            ctx.fillStyle=dk?'#2D5016':'#345C1A';ctx.fillRect(x,y,C,C);
-            ctx.fillStyle=dk?'#3A6820':'#416824';
-            ctx.fillRect(x+2,y+4,3,2);ctx.fillRect(x+C-8,y+C-7,3,2);ctx.fillRect(x+C/2-2,y+C/2,3,2);
-            ctx.strokeStyle='rgba(0,0,0,.15)';ctx.lineWidth=1;ctx.strokeRect(x+.5,y+.5,C-1,C-1);
-        }}
-    }}
-    ctx.fillStyle='rgba(100,70,20,.45)';
-    for(let i=1;i<PATH.length;i++){{
-        const[c1,r1]=PATH[i-1],[c2,r2]=PATH[i];
-        const cx=OX+(c1+c2)/2*C+C/2,cy=OY+(r1+r2)/2*C+C/2,ag=Math.atan2(r2-r1,c2-c1);
-        ctx.save();ctx.translate(cx,cy);ctx.rotate(ag);
-        ctx.beginPath();ctx.moveTo(7,0);ctx.lineTo(-5,-5);ctx.lineTo(-5,5);ctx.closePath();ctx.fill();ctx.restore();
-    }}
-    const[sc,sr]=PATH[0];
-    ctx.fillStyle='rgba(0,200,0,.35)';ctx.fillRect(OX+sc*C,OY+sr*C,C,C);
-    ctx.fillStyle='#00FF88';ctx.font='bold 10px monospace';ctx.textAlign='center';ctx.textBaseline='middle';
-    ctx.fillText('▶START',OX+sc*C+C/2,OY+sr*C+C/2);
-    const[ec,er]=PATH[PATH.length-1];
-    ctx.fillStyle='rgba(200,0,0,.35)';ctx.fillRect(OX+ec*C,OY+er*C,C,C);
-    ctx.fillStyle='#FF4444';ctx.fillText('END✖',OX+ec*C+C/2,OY+er*C+C/2);
-}}
-
-let hC=-1,hR=-1;
-function drawHover(){{
-    if(!SEL||hC<0)return;
-    const k=hC+','+hR,v=!PS.has(k)&&!TW[k];
-    ctx.fillStyle=v?'rgba(212,175,55,.3)':'rgba(200,50,50,.3)';
-    ctx.fillRect(OX+hC*C,OY+hR*C,C,C);
-    ctx.strokeStyle=v?'#D4AF37':'#E74C3C';ctx.lineWidth=2;
-    ctx.strokeRect(OX+hC*C+1,OY+hR*C+1,C-2,C-2);
-    ctx.fillStyle=v?'#FFD700':'#FF8888';
-    ctx.font='bold 9px monospace';ctx.textAlign='center';ctx.textBaseline='middle';
-    ctx.fillText('('+hC+','+hR+')',OX+hC*C+C/2,OY+hR*C+C/2);
-}}
-
-function drawTower(cx,cy,tp){{
-    const col=TC[tp]||'#888';
-    ctx.fillStyle='#5A4A3A';ctx.fillRect(cx-10,cy+4,20,8);
-    ctx.fillStyle='#6B5B4B';ctx.fillRect(cx-7,cy-12,14,16);
-    ctx.fillStyle='#7A6A5A';
-    for(let i=0;i<3;i++)ctx.fillRect(cx-8+i*6,cy-17,4,5);
-    ctx.fillStyle=col;ctx.fillRect(cx-4,cy-8,8,10);
-    ctx.fillStyle='#0A0A1A';ctx.fillRect(cx-2,cy-6,4,5);
-    const ic={{archer:'🏹',mage:'🔮',ballista:'⚡',frost:'❄️',cannon:'💣'}};
-    ctx.font='13px serif';ctx.textAlign='center';ctx.textBaseline='alphabetic';
-    ctx.fillText(ic[tp]||'🗼',cx,cy-20);
-}}
-
-function drawEnemy(e){{
-    const px=OX+e.x*C+C/2,py=OY+e.y*C+C/2;
-    const sz=e.size==='boss'?22:e.size==='large'?18:e.size==='medium'?14:11;
-    ctx.save();
-    ctx.fillStyle='rgba(0,0,0,.4)';ctx.beginPath();ctx.ellipse(px,py+sz-2,sz*.7,4,0,0,Math.PI*2);ctx.fill();
-    ctx.fillStyle=e.color;ctx.fillRect(px-sz/2,py-sz,sz,sz*1.2);
-    ctx.fillStyle=lt(e.color,20);ctx.fillRect(px-sz*.4,py-sz*1.6,sz*.8,sz*.7);
-    ctx.fillStyle='#000';ctx.fillRect(px-sz*.25,py-sz*1.4,3,3);ctx.fillRect(px+sz*.1,py-sz*1.4,3,3);
-    ctx.fillStyle='#200000';ctx.fillRect(px-sz*.8,py-sz*1.9,sz*1.6,5);
-    ctx.fillStyle=e.hp_pct>.5?'#27AE60':e.hp_pct>.25?'#F39C12':'#E74C3C';
-    ctx.fillRect(px-sz*.8,py-sz*1.9,sz*1.6*e.hp_pct,5);
-    ctx.restore();
-}}
-
-function render(){{
-    ctx.clearRect(0,0,CW,CH);
-    drawTerrain();
-    for(const[k,t]of Object.entries(TW)){{const[c,r]=k.split(',').map(Number);drawTower(OX+c*C+C/2,OY+r*C+C/2,t.type);}}
-    EN.forEach(drawEnemy);
-    drawHover();
-    drawRulers();
-}}
-
-// FX
-const ov=document.getElementById('ov'),flash=document.getElementById('flash');
-function hitFx(ex,ey,tp){{
-    const px=ex*C+C/2,py=ey*C+C/2,el=document.createElement('div');el.className='ah';
-    const cl={{archer:'#8BC34A',mage:'#9C27B0',ballista:'#FF9800',frost:'#00BCD4',cannon:'#795548'}};
-    el.style.cssText=`width:18px;height:18px;background:${{cl[tp]||'#FFF'}};left:${{px-9}}px;top:${{py-9}}px;opacity:.8;`;
-    ov.appendChild(el);setTimeout(()=>el.remove(),400);
-}}
-function killFx(ex,ey){{
-    const px=ex*C+C/2,py=ey*C+C/2,el=document.createElement('div');el.className='ak';
-    el.textContent='💀';el.style.cssText=`left:${{px-10}}px;top:${{py-20}}px;`;
-    ov.appendChild(el);setTimeout(()=>el.remove(),800);
-}}
-function dmgNum(ex,ey,d){{
-    const px=ex*C+C/2+rn(-10,10),py=ey*C+C/2,el=document.createElement('div');el.className='dn';
-    el.textContent='-'+d;el.style.cssText=`left:${{px}}px;top:${{py}}px;`;
-    ov.appendChild(el);setTimeout(()=>el.remove(),600);
-}}
-EV.forEach(ev=>{{
-    if(ev.type==='hit'){{hitFx(ev.ex,ev.ey,ev.tower_type);dmgNum(ev.ex,ev.ey,ev.dmg);}}
-    else if(ev.type==='kill'){{killFx(ev.x,ev.y);}}
-    else if(ev.type==='wave_clear'){{
-        flash.style.opacity='1';setTimeout(()=>flash.style.opacity='0',400);
-    }}
-}});
-
-// ── Tooltip + hover ────────────────────────────────────────────────────────
-const tip=document.getElementById('tip');
-function getCell(ev){{
-    const rc=cv.getBoundingClientRect();
-    const mx=(ev.clientX-rc.left)*(CW/rc.width),my=(ev.clientY-rc.top)*(CH/rc.height);
-    return[Math.floor((mx-OX)/C),Math.floor((my-OY)/C)];
-}}
-cv.addEventListener('mousemove',ev=>{{
-    const[c,r]=getCell(ev);
-    if(c>=0&&c<COLS&&r>=0&&r<ROWS){{
-        hC=c;hR=r;
-        const k=c+','+r;
-        let tx='Col '+c+' · Linha '+r;
-        if(TW[k])tx+=' — '+TW[k].type;
-        else if(PS.has(k))tx+=' — Caminho';
-        else if(SEL)tx+=' — Clique para construir';
-        tip.textContent=tx;tip.style.display='block';
-        const rc2=cv.getBoundingClientRect();
-        tip.style.left=(ev.clientX-rc2.left+12)+'px';
-        tip.style.top=(ev.clientY-rc2.top+12)+'px';
-    }}else{{hC=-1;hR=-1;tip.style.display='none';}}
-    render();
-}});
-cv.addEventListener('mouseleave',()=>{{hC=-1;hR=-1;tip.style.display='none';render();}});
-
-// ── Touch support (mobile) ─────────────────────────────────────────────────
-cv.addEventListener('touchstart',ev=>{{
-    ev.preventDefault();
-    const t=ev.touches[0];
-    const[c,r]=getCell(t);
-    if(c>=0&&c<COLS&&r>=0&&r<ROWS){{hC=c;hR=r;}}
-    render();
-}},{{passive:false}});
-cv.addEventListener('touchend',ev=>{{
-    ev.preventDefault();
-    if(hC>=0&&SEL){{
-        const k=hC+','+hR;
-        if(!PS.has(k)&&!TW[k]) sendPlace(hC,hR);
-    }}
-}},{{passive:false}});
-
-// ── CLICK → navigate parent URL with ?_pc=C&_pr=R ─────────────────────────
-function sendPlace(c,r){{
-    const url=new URL(window.parent.location.href);
-    url.searchParams.set('_pc',c);
-    url.searchParams.set('_pr',r);
-    window.parent.location.href=url.toString();
-}}
-cv.addEventListener('click',ev=>{{
-    if(!SEL)return;
-    const[c,r]=getCell(ev);
-    if(c<0||c>=COLS||r<0||r>=ROWS)return;
-    const k=c+','+r;
-    if(PS.has(k)||TW[k])return;
-    sendPlace(c,r);
-}});
-
-cv.style.cursor=SEL?'crosshair':'default';
-render();
-</script></body></html>"""
-
-# ══════════════════════════════════════════════════════════════════════════════
 # SCREENS
 # ══════════════════════════════════════════════════════════════════════════════
 def screen_menu():
@@ -590,22 +413,6 @@ def screen_game():
     ss=st.session_state
     path=current_path()
 
-    # ── 1. Process click-to-place from URL params (highest priority) ──────────
-    pc_param=st.query_params.get("_pc","")
-    pr_param=st.query_params.get("_pr","")
-    if pc_param and pr_param:
-        try:
-            pc,pr=int(pc_param),int(pr_param)
-            # Store in session state; the build panel will auto-apply it
-            ss.click_col=pc; ss.click_row=pr
-        except Exception:
-            pass
-        st.query_params.pop("_pc",None); st.query_params.pop("_pr",None)
-        # If a tower is selected, place immediately
-        if ss.selected_tower and ss.click_col>=0:
-            place_tower(ss.click_col, ss.click_row)
-        st.rerun()
-
     # ── 2. Tick ───────────────────────────────────────────────────────────────
     if ss.wave_active:
         for _ in range(6):
@@ -630,12 +437,29 @@ def screen_game():
 
     # ── ARENA ─────────────────────────────────────────────────────────────────
     with arena_col:
-        from streamlit.components.v1 import html as st_html
         ARENA_H=RULER+GRID_H*CELL+4
-        # Wrap in a scrollable div for mobile
-        st.markdown("<div class='arena-scroll'>",unsafe_allow_html=True)
-        st_html(build_arena_html(path), height=ARENA_H, scrolling=False)
-        st.markdown("</div>",unsafe_allow_html=True)
+        grid=current_grid()
+        towers_dict={f"{c},{r}":{"type":grid[r][c]} for r in range(GRID_H) for c in range(GRID_W) if isinstance(grid[r][c],str)}
+        elist=[]
+        for e in ss.enemies:
+            pi=min(e["path_idx"],len(path)-2); t=max(0.0,min(1.0,e["progress"]))
+            c1,r1=path[pi]; c2,r2=path[min(pi+1,len(path)-1)]
+            elist.append({"id":e["id"],"x":c1+(c2-c1)*t,"y":r1+(r2-r1)*t,
+                          "hp_pct":max(0,e["hp"]/e["hp_max"]),"color":e["color"],"size":e["size"]})
+        plist=[{"id":p["id"],"x":p["x"],"y":p["y"],"color":p["color"],"size":p["size"]} for p in ss.projectiles if p["alive"]]
+        click_result=_arena_component(
+            path_data=path, towers_data=towers_dict, enemies_data=elist,
+            projectiles_data=plist,
+            events_data=ss.anim_events, selected=ss.selected_tower or "",
+            tcolors={"archer":"#5D8A23","mage":"#6A0080","ballista":"#B36000","frost":"#007A8C","cannon":"#4E342E"},
+            cols=GRID_W, rows=GRID_H, cell=CELL, ruler=RULER,
+            height=ARENA_H, key="arena_grid", default=None)
+        if click_result and ss.selected_tower:
+            ts=click_result.get("_ts",0)
+            if ts!=ss.get("_last_click_ts",0):
+                ss._last_click_ts=ts
+                if place_tower(click_result["col"],click_result["row"]):
+                    st.rerun()
 
     # ── TOWERS COLUMN ─────────────────────────────────────────────────────────
     with towers_col:
@@ -692,11 +516,10 @@ def screen_game():
             with ci2:
                 row_in=st.number_input("Lin",0,GRID_H-1,default_r,key="pr",help="Linha 0–9")
 
-            kp=f"{col_in},{row_in}"
-            path_set_p=set(map(tuple,path))
-            is_path_c=(col_in,row_in) in path_set_p
-            is_occ=kp in ss.towers
-            cell_ok=not is_path_c and not is_occ
+            g_cell=current_grid()[row_in][col_in]
+            is_path_c=g_cell==CELL_PATH
+            is_occ=isinstance(g_cell,str)
+            cell_ok=g_cell==CELL_EMPTY
             cost_now=get_tower_cost(ss.selected_tower)
 
             if is_path_c:
@@ -787,7 +610,7 @@ def screen_gameover():
             Onda {ss.wave}/{ss.max_waves} · Mapa #{ss.map_seed}
         </div>
         <div style='font-family:Cinzel,serif;font-size:.85rem;color:#7A7A8A;'>
-            Score: {ss.score:,} · Kills: {ss.kills} · Torres: {len(ss.towers)}
+            Score: {ss.score:,} · Kills: {ss.kills} · Torres: {tower_count()}
         </div>
     </div>""",unsafe_allow_html=True)
     c1,c2,c3=st.columns([1,1,1])
