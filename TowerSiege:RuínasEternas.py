@@ -1,9 +1,13 @@
+"""
+Tower Siege: Ruínas Eternas
+100% self-contained — works on Streamlit Cloud with NO external files.
+The arena component HTML is embedded as a Python string and rendered via
+st.components.v1.html(), with game state injected as inline JSON.
+Click-to-place uses the URL query-param bridge (same-origin navigation).
+"""
 import streamlit as st
 import streamlit.components.v1 as st_components
-import random, math, json, time, os
-
-_ARENA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "components", "arena")
-_arena_component = st_components.declare_component("arena", path=_ARENA_DIR)
+import random, math, json, time
 
 st.set_page_config(
     page_title="Tower Siege: Ruínas Eternas",
@@ -21,10 +25,10 @@ RULER = 22
 
 TOWER_TYPES = {
     "archer":   {"name":"Arqueiro","emoji":"🏹","cost":80,  "damage":45, "range":3.5,"fire_rate":6.0,"color":"#8BC34A","desc":"Ataque rápido, alcance médio","pixel_color":"#5D8A23","proj_speed":12,"proj_color":"#C8E6A0","proj_size":3},
-    "mage":     {"name":"Mago",    "emoji":"🔮","cost":130, "damage":95, "range":2.5,"fire_rate":2.0,"color":"#9C27B0","desc":"Dano em área, lento",          "pixel_color":"#6A0080","proj_speed":8,"proj_color":"#CE93D8","proj_size":6},
+    "mage":     {"name":"Mago",    "emoji":"🔮","cost":130, "damage":95, "range":2.5,"fire_rate":2.0,"color":"#9C27B0","desc":"Dano em área, lento",          "pixel_color":"#6A0080","proj_speed":8, "proj_color":"#CE93D8","proj_size":6},
     "ballista": {"name":"Balista", "emoji":"⚡","cost":200, "damage":190,"range":5.0,"fire_rate":1.0,"color":"#FF9800","desc":"Dano perfurante brutal",        "pixel_color":"#B36000","proj_speed":16,"proj_color":"#FFE0B2","proj_size":4},
     "frost":    {"name":"Gelo",    "emoji":"❄️","cost":110, "damage":20, "range":2.5,"fire_rate":4.0,"color":"#00BCD4","desc":"Lentifica inimigos -40%",       "pixel_color":"#007A8C","proj_speed":10,"proj_color":"#80DEEA","proj_size":5},
-    "cannon":   {"name":"Canhão",  "emoji":"💣","cost":160, "damage":130,"range":2.5,"fire_rate":1.5,"color":"#795548","desc":"Explosão 3x3, lento",           "pixel_color":"#4E342E","proj_speed":7,"proj_color":"#A1887F","proj_size":7},
+    "cannon":   {"name":"Canhão",  "emoji":"💣","cost":160, "damage":130,"range":2.5,"fire_rate":1.5,"color":"#795548","desc":"Explosão 3x3, lento",           "pixel_color":"#4E342E","proj_speed":7, "proj_color":"#A1887F","proj_size":7},
 }
 
 ENEMY_TYPES = {
@@ -49,15 +53,13 @@ ROGUELIKE_UPGRADES = [
     {"id":"titan_barrel",   "name":"Barril Titã",         "desc":"+80% dano Canhão",      "icon":"🪣"},
 ]
 
-# ══════════════════════════════════════════════════════════════════════════════
-# GRID MATRIX & PATH GENERATOR
-# ══════════════════════════════════════════════════════════════════════════════
 CELL_EMPTY = 0
 CELL_PATH  = 1
-# Tower cells store the type string: "archer", "mage", etc.
 
+# ══════════════════════════════════════════════════════════════════════════════
+# MAP GENERATOR
+# ══════════════════════════════════════════════════════════════════════════════
 def generate_grid(seed):
-    """Build GRID_H×GRID_W matrix with algorithmic path. Returns (grid, path)."""
     rng = random.Random(seed)
     grid = [[CELL_EMPTY]*GRID_W for _ in range(GRID_H)]
     entry_row = rng.randint(2, GRID_H-3)
@@ -120,16 +122,14 @@ def get_wave_enemies(wave):
     elif wave<=9: pool=["goblin"]*3+["skeleton"]*4+["orc"]*4+["wraith"]*2
     elif wave<=12:pool=["skeleton"]*3+["orc"]*5+["wraith"]*3+["troll"]*1
     else:         pool=["orc"]*5+["wraith"]*4+["troll"]*2+["dragon"]*1
-    # Waves 13-15 count capped at 30 to avoid overwhelming leak rate
-    base_count = 8 + wave * 2
+    base_count = 8 + wave*2
     count = min(base_count, 30) if wave >= 13 else base_count
     return [random.choice(pool) for _ in range(count)]
 
-def spawn_enemy(etype,wave):
-    # +12% HP per wave (was +15%) — less punishing in late game
-    scale=1+(wave-1)*0.12
-    base=ENEMY_TYPES[etype]; hp=int(base["hp_base"]*scale)
-    gold_mult=1.5 if "gold_rush" in st.session_state.upgrades else 1.0
+def spawn_enemy(etype, wave):
+    scale = 1 + (wave-1)*0.12
+    base = ENEMY_TYPES[etype]; hp = int(base["hp_base"]*scale)
+    gold_mult = 1.5 if "gold_rush" in st.session_state.upgrades else 1.0
     return {"id":random.randint(10000,99999),"type":etype,"name":base["name"],
             "hp":hp,"hp_max":hp,"speed":base["speed"],"slow":1.0,
             "reward":int(base["reward"]*gold_mult),"path_idx":0,"progress":0.0,
@@ -157,7 +157,6 @@ def get_tower_cost(ttype):
     return int(base*0.80) if "arcane_nexus" in st.session_state.upgrades else base
 
 def place_tower(col, row):
-    """Place tower — writes tower type string into grid[row][col]."""
     ss = st.session_state
     if not ss.selected_tower: return False
     if col < 0 or col >= GRID_W or row < 0 or row >= GRID_H: return False
@@ -177,13 +176,15 @@ def tick_game():
     if not ss.wave_active: return
     ss.game_tick+=1
     path=current_path(); path_len=len(path)-1; events=[]
-    # ── Spawn enemies ──
+
+    # Spawn
     if ss.enemies_spawned<ss.enemies_to_spawn:
         ss.tick_counter+=1
         if ss.tick_counter%4==0:
             ss.enemies.append(spawn_enemy(ss._spawn_queue[ss.enemies_spawned],ss.wave))
             ss.enemies_spawned+=1
-    # ── Move enemies ──
+
+    # Move enemies
     alive=[]
     for e in ss.enemies:
         if not e["alive"]: continue
@@ -195,61 +196,54 @@ def tick_game():
             e["reached_end"]=True; continue
         e["slow"]=1.0; alive.append(e)
     ss.enemies=alive
-    # ── Towers fire projectiles ──
+
+    # Towers fire projectiles
     grid=current_grid()
-    _tw=[(tc,tr,{**TOWER_TYPES[grid[tr][tc]],"type":grid[tr][tc]}) for tr in range(GRID_H) for tc in range(GRID_W) if isinstance(grid[tr][tc],str)]
+    _tw=[(tc,tr,{**TOWER_TYPES[grid[tr][tc]],"type":grid[tr][tc]})
+         for tr in range(GRID_H) for tc in range(GRID_W) if isinstance(grid[tr][tc],str)]
     for tc,tr,_td in _tw:
         t=apply_upgrades_to_tower(_td)
         tkey=f"{tc},{tr}"
-        cooldown=1.0/t["fire_rate"]
-        last_fire=ss.tower_cooldowns.get(tkey,-9999)  # fire immediately on first opportunity
-        ticks_per_sec=24
-        if (ss.game_tick-last_fire)<cooldown*ticks_per_sec: continue
-        # TARGET LOCKING: keep firing at same enemy until dead or out of range
+        cd_ticks=(1.0/t["fire_rate"])*24
+        if (ss.game_tick-ss.tower_cooldowns.get(tkey,-9999))<cd_ticks: continue
+        # Target locking
         locked_id=ss.tower_targets.get(tkey)
         target=None
         if locked_id is not None:
             tgt=next((e for e in ss.enemies if e["id"]==locked_id and e["alive"]),None)
-            if tgt and dist(tc,tr,*path[tgt["path_idx"]])<=t["range"]:
-                target=tgt
-            else:
-                ss.tower_targets.pop(tkey,None)
+            if tgt and dist(tc,tr,*path[tgt["path_idx"]])<=t["range"]: target=tgt
+            else: ss.tower_targets.pop(tkey,None)
         if target is None:
             candidates=[e for e in ss.enemies if e["alive"] and dist(tc,tr,*path[e["path_idx"]])<=t["range"]]
             if not candidates: continue
             candidates.sort(key=lambda e:e["path_idx"]+e["progress"],reverse=True)
-            target=candidates[0]
-            ss.tower_targets[tkey]=target["id"]
+            target=candidates[0]; ss.tower_targets[tkey]=target["id"]
         pi=min(target["path_idx"],len(path)-2)
         prog=max(0.0,min(1.0,target["progress"]))
         c1,r1=path[pi]; c2,r2=path[min(pi+1,len(path)-1)]
         ex=c1+(c2-c1)*prog; ey=r1+(r2-r1)*prog
         proj={"id":random.randint(10000,99999),"tower_type":t["type"],
-              "sx":float(tc),"sy":float(tr),"x":float(tc),"y":float(tr),
-              "tx":ex,"ty":ey,"target_id":target["id"],
-              "speed":t.get("proj_speed",6),"damage":t["damage"],
-              "color":t.get("proj_color","#FFF"),"size":t.get("proj_size",4),
-              "effects":[],"alive":True}
+              "x":float(tc),"y":float(tr),"tx":ex,"ty":ey,
+              "target_id":target["id"],"speed":t.get("proj_speed",6),
+              "damage":t["damage"],"color":t.get("proj_color","#FFF"),
+              "size":t.get("proj_size",4),"effects":[],"alive":True}
         if t["type"]=="frost": proj["effects"].append({"type":"slow","amount":t.get("slow_amount",0.40)})
         if t["type"] in ("cannon","mage"): proj["effects"].append({"type":"splash","radius":1.5,"ratio":0.6})
         ss.projectiles.append(proj)
         ss.tower_cooldowns[tkey]=ss.game_tick
-    # ── Move projectiles + on-hit ──
+
+    # Move projectiles + hit
     alive_proj=[]
     for p in ss.projectiles:
         if not p["alive"]: continue
-        # Update target position (homing)
         tgt=next((e for e in ss.enemies if e["id"]==p["target_id"] and e["alive"]),None)
         if tgt:
             pi=min(tgt["path_idx"],len(path)-2); prog=max(0.0,min(1.0,tgt["progress"]))
             c1,r1=path[pi]; c2,r2=path[min(pi+1,len(path)-1)]
             p["tx"]=c1+(c2-c1)*prog; p["ty"]=r1+(r2-r1)*prog
-        # Move toward target
         dx=p["tx"]-p["x"]; dy=p["ty"]-p["y"]
-        d=math.sqrt(dx*dx+dy*dy)
-        step=p["speed"]*0.10  # movement per tick
+        d=math.sqrt(dx*dx+dy*dy); step=p["speed"]*0.10
         if d<=step or d<0.3:
-            # ── HIT ──
             if tgt and tgt["alive"]:
                 dmg=p["damage"]
                 for eff in p["effects"]:
@@ -269,11 +263,11 @@ def tick_game():
                     events.append({"type":"kill","x":p["tx"],"y":p["ty"]})
             p["alive"]=False
         else:
-            p["x"]+=dx/d*step; p["y"]+=dy/d*step
-            alive_proj.append(p)
+            p["x"]+=dx/d*step; p["y"]+=dy/d*step; alive_proj.append(p)
     ss.projectiles=alive_proj
     ss.enemies=[e for e in ss.enemies if e["alive"]]
-    # ── Wave end check ──
+
+    # Wave end
     if ss.enemies_spawned>=ss.enemies_to_spawn and len(ss.enemies)==0 and len(ss.projectiles)==0:
         ss.wave_active=False; bonus=40+ss.wave*15; ss.gold+=bonus; ss.score+=bonus*5
         events.append({"type":"wave_clear"})
@@ -324,56 +318,321 @@ def inject_global_css():
     .stButton>button:disabled{opacity:.35!important;cursor:not-allowed!important;}
     [data-testid="column"]{padding:0 3px!important;}
     hr{border-color:var(--border)!important;margin:.3rem 0!important;}
-    /* number inputs */
     [data-testid="stNumberInput"] input{background:#0A0A1A!important;color:var(--gold-light)!important;
         border:1px solid var(--border)!important;font-family:'Cinzel',serif!important;font-size:.75rem!important;}
-    /* HUD */
     .hud-stat{display:flex;align-items:center;gap:5px;font-family:'Cinzel',serif;font-size:.78rem;font-weight:700;white-space:nowrap;}
     .hud-stat .val{color:var(--gold-light);font-size:.9rem;}
     .hud-stat.lives .val{color:#E74C3C;}
     .hud-stat.score .val{color:#00E5FF;}
-    /* Panel */
     .panel-title{font-family:'Cinzel Decorative',cursive;font-size:.65rem;color:var(--gold);
         letter-spacing:.12em;text-transform:uppercase;margin-bottom:6px;
         border-bottom:1px solid var(--border);padding-bottom:3px;}
-    /* Tower cards */
-    .tower-card{background:var(--bg-card);border:1px solid var(--border);border-radius:4px;
-        padding:5px 7px;margin-bottom:3px;}
+    .tower-card{background:var(--bg-card);border:1px solid var(--border);border-radius:4px;padding:5px 7px;margin-bottom:3px;}
     .tower-card.sel{border-color:var(--gold);background:#16162A;}
     .tower-card .tc-name{font-size:.72rem;font-weight:700;color:var(--text);}
     .tower-card .tc-cost{font-size:.66rem;color:var(--gold);}
     .tower-card .tc-desc{font-size:.58rem;color:var(--text-dim);margin-top:1px;}
-    /* Build panel */
     .build-panel{background:#12121A;border:1px solid var(--gold);border-radius:6px;padding:8px;margin-bottom:6px;}
     .build-panel .bp-title{font-family:'Cinzel',serif;font-size:.68rem;font-weight:700;color:var(--gold);text-align:center;margin-bottom:4px;}
     .build-panel .bp-hint{font-size:.56rem;color:var(--text-dim);text-align:center;font-family:'Cinzel',serif;}
-    /* Status text */
     .ok-cell{font-size:.6rem;color:#27AE60;font-family:'Cinzel',serif;}
     .bad-cell{font-size:.6rem;color:#E74C3C;font-family:'Cinzel',serif;}
-    /* Log */
     .log-box{background:#050508;border:1px solid var(--border);border-radius:4px;padding:5px 7px;
         height:120px;overflow-y:auto;font-size:.58rem;font-family:'Cinzel',serif;color:var(--text-dim);}
     .log-entry{margin-bottom:2px;line-height:1.3;}
     .log-entry.kill{color:#E74C3C;}
     .log-entry.gold{color:var(--gold);}
-    /* Upgrade */
-    .upg-card{background:var(--bg-card);border:2px solid var(--border);border-radius:8px;
-        padding:18px;text-align:center;}
+    .upg-card{background:var(--bg-card);border:2px solid var(--border);border-radius:8px;padding:18px;text-align:center;}
     .upg-icon{font-size:2.2rem;display:block;margin-bottom:6px;}
     .upg-name{font-family:'Cinzel Decorative',cursive;font-size:.85rem;color:var(--gold);}
     .upg-desc{font-size:.7rem;color:var(--text-dim);margin-top:5px;}
-    /* End */
     .end-screen{text-align:center;padding:50px 20px;}
     .end-title{font-family:'Cinzel Decorative',cursive;font-size:3.5rem;font-weight:900;margin-bottom:14px;}
     .end-sub{font-family:'Cinzel',serif;font-size:1rem;color:var(--text-dim);margin-bottom:28px;}
-    /* Mobile: arena wrapper scrolls horizontally */
     .arena-scroll{width:100%;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;}
-    /* Responsive HUD — stack on small screens */
-    @media(max-width:600px){
-        .hud-stat{font-size:.65rem;}
-        .hud-stat .val{font-size:.75rem;}
-    }
+    @media(max-width:600px){.hud-stat{font-size:.65rem;}.hud-stat .val{font-size:.75rem;}}
     </style>""", unsafe_allow_html=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ARENA — self-contained HTML injected with game state as inline JSON
+# No external files. Click → URL ?_pc=C&_pr=R → Streamlit query_params.
+# Lerped 60fps animation loop for enemies and projectiles.
+# ══════════════════════════════════════════════════════════════════════════════
+def build_arena_html(path):
+    ss  = st.session_state
+    C, R = CELL, RULER
+    COLS, ROWS = GRID_W, GRID_H
+    CW = R + COLS*C; CH = R + ROWS*C; OX = R; OY = R
+
+    grid = current_grid()
+    towers_js = json.dumps({
+        f"{c},{r}": {"type": grid[r][c]}
+        for r in range(GRID_H) for c in range(GRID_W) if isinstance(grid[r][c], str)
+    })
+    elist = []
+    for e in ss.enemies:
+        pi = min(e["path_idx"], len(path)-2)
+        t  = max(0.0, min(1.0, e["progress"]))
+        c1,r1 = path[pi]; c2,r2 = path[min(pi+1, len(path)-1)]
+        elist.append({"id":e["id"], "x":c1+(c2-c1)*t, "y":r1+(r2-r1)*t,
+                      "hp_pct":max(0, e["hp"]/e["hp_max"]),
+                      "color":e["color"], "size":e["size"]})
+    plist = [{"id":p["id"],"x":p["x"],"y":p["y"],
+              "color":p["color"],"size":p["size"]}
+             for p in ss.projectiles if p["alive"]]
+
+    enemies_js  = json.dumps(elist)
+    proj_js     = json.dumps(plist)
+    path_js     = json.dumps(path)
+    events_js   = json.dumps(ss.anim_events)
+    selected    = ss.selected_tower or ""
+    tcolors_js  = json.dumps({"archer":"#5D8A23","mage":"#6A0080",
+                               "ballista":"#B36000","frost":"#007A8C","cannon":"#4E342E"})
+
+    return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+*{{margin:0;padding:0;box-sizing:border-box;}}
+html,body{{background:#0A0A0F;overflow:hidden;font-family:monospace;
+          user-select:none;touch-action:none;width:{CW}px;height:{CH}px;}}
+#w{{position:relative;width:{CW}px;height:{CH}px;}}
+canvas{{display:block;position:absolute;top:0;left:0;image-rendering:pixelated;}}
+#ov{{position:absolute;pointer-events:none;top:{OY}px;left:{OX}px;
+    width:{COLS*C}px;height:{ROWS*C}px;}}
+.ah{{position:absolute;border-radius:50%;pointer-events:none;animation:ha .4s ease-out forwards;}}
+@keyframes ha{{0%{{transform:scale(.2);opacity:1;}}100%{{transform:scale(1.8);opacity:0;}}}}
+.ak{{position:absolute;pointer-events:none;font-size:16px;animation:ka .8s ease-out forwards;}}
+@keyframes ka{{0%{{transform:translateY(0);opacity:1;}}100%{{transform:translateY(-40px);opacity:0;}}}}
+.dn{{position:absolute;color:#FF4444;font-size:13px;font-weight:bold;pointer-events:none;
+    text-shadow:0 0 4px #000;animation:da .6s ease-out forwards;}}
+@keyframes da{{0%{{transform:translateY(0) scale(1);opacity:1;}}100%{{transform:translateY(-30px) scale(.8);opacity:0;}}}}
+#tip{{position:absolute;background:rgba(10,10,20,.94);border:1px solid #D4AF37;border-radius:4px;
+    padding:4px 8px;font-size:11px;color:#E8DCC8;pointer-events:none;display:none;z-index:200;white-space:nowrap;}}
+</style></head><body>
+<div id="w">
+  <canvas id="c" width="{CW}" height="{CH}"></canvas>
+  <div id="ov"></div>
+  <div id="tip"></div>
+</div>
+<script>
+// ── Static state (injected from Python) ──────────────────────────────────
+var COLS={COLS},ROWS={ROWS},C={C},R={R},CW={CW},CH={CH},OX={OX},OY={OY};
+var PATH={path_js};
+var PS=new Set(PATH.map(function(p){{return p[0]+','+p[1];}}));
+var TW={towers_js};
+var TC={tcolors_js};
+var SEL="{selected}";
+
+// ── Lerped display state ──────────────────────────────────────────────────
+var newEnemies={enemies_js};
+var newProj={proj_js};
+var EV={events_js};
+
+var dispEnemies=[];
+var dispProj=[];
+var LERP=0.18;
+
+// Initialise / merge enemies
+(function(){{
+  var newEN=newEnemies;
+  newEN.forEach(function(ne){{
+    dispEnemies.push({{id:ne.id,x:ne.x,y:ne.y,tx:ne.x,ty:ne.y,
+                       hp_pct:ne.hp_pct,color:ne.color,size:ne.size}});
+  }});
+  var newPR=newProj;
+  newPR.forEach(function(np){{
+    dispProj.push({{id:np.id,x:np.x,y:np.y,tx:np.x,ty:np.y,
+                    color:np.color,size:np.size}});
+  }});
+}})();
+
+function lerpTo(c,t,f){{return c+(t-c)*f;}}
+
+// ── Canvas ────────────────────────────────────────────────────────────────
+var cv=document.getElementById('c'),ctx=cv.getContext('2d');
+var ov=document.getElementById('ov'),tip=document.getElementById('tip');
+var hC=-1,hR=-1;
+
+function lt(h,a){{
+  var n=parseInt(h.slice(1),16);
+  return'#'+[((n>>16)&255)+a,((n>>8)&255)+a,(n&255)+a]
+    .map(function(v){{return Math.min(255,Math.max(0,v)).toString(16).padStart(2,'0');}}).join('');
+}}
+function rn(a,b){{return Math.floor(Math.random()*(b-a))+a;}}
+
+function drawRulers(){{
+  ctx.fillStyle='#12121A';ctx.fillRect(0,0,CW,R);ctx.fillRect(0,0,R,CH);
+  ctx.fillStyle='#1A1A2E';ctx.fillRect(0,0,R,R);
+  ctx.fillStyle='#D4AF37';ctx.font='bold 8px monospace';
+  ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('C\\\\R',R/2,R/2);
+  for(var c=0;c<COLS;c++){{
+    ctx.fillStyle=c%2?'#141420':'#1A1A2E';ctx.fillRect(OX+c*C,0,C,R);
+    ctx.fillStyle='#D4AF37';ctx.font='bold 10px monospace';
+    ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(c,OX+c*C+C/2,R/2);
+  }}
+  for(var r=0;r<ROWS;r++){{
+    ctx.fillStyle=r%2?'#141420':'#1A1A2E';ctx.fillRect(0,OY+r*C,R,C);
+    ctx.fillStyle='#D4AF37';ctx.font='bold 10px monospace';
+    ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(r,R/2,OY+r*C+C/2);
+  }}
+  ctx.strokeStyle='#2A2A4A';ctx.lineWidth=1;ctx.strokeRect(.5,.5,CW-1,CH-1);
+  ctx.beginPath();ctx.moveTo(R,0);ctx.lineTo(R,CH);ctx.moveTo(0,R);ctx.lineTo(CW,R);ctx.stroke();
+}}
+
+function drawTerrain(){{
+  for(var r=0;r<ROWS;r++)for(var c=0;c<COLS;c++){{
+    var k=c+','+r,ip=PS.has(k),x=OX+c*C,y=OY+r*C;
+    if(ip){{
+      ctx.fillStyle='#C8A96E';ctx.fillRect(x,y,C,C);
+      ctx.fillStyle='rgba(100,70,30,.3)';
+      for(var px=2;px<C;px+=8)for(var py=2;py<C;py+=8)ctx.fillRect(x+px,y+py,2,2);
+      ctx.strokeStyle='rgba(160,120,50,.4)';ctx.lineWidth=1;ctx.strokeRect(x+.5,y+.5,C-1,C-1);
+    }}else{{
+      var dk=(c+r)%2;ctx.fillStyle=dk?'#2D5016':'#345C1A';ctx.fillRect(x,y,C,C);
+      ctx.fillStyle=dk?'#3A6820':'#416824';
+      ctx.fillRect(x+2,y+4,3,2);ctx.fillRect(x+C-8,y+C-7,3,2);ctx.fillRect(x+C/2-2,y+C/2,3,2);
+      ctx.strokeStyle='rgba(0,0,0,.15)';ctx.lineWidth=1;ctx.strokeRect(x+.5,y+.5,C-1,C-1);
+    }}
+  }}
+  ctx.fillStyle='rgba(100,70,20,.45)';
+  for(var i=1;i<PATH.length;i++){{
+    var c1=PATH[i-1][0],r1=PATH[i-1][1],c2=PATH[i][0],r2=PATH[i][1];
+    var cx=OX+(c1+c2)/2*C+C/2,cy=OY+(r1+r2)/2*C+C/2,ag=Math.atan2(r2-r1,c2-c1);
+    ctx.save();ctx.translate(cx,cy);ctx.rotate(ag);
+    ctx.beginPath();ctx.moveTo(7,0);ctx.lineTo(-5,-5);ctx.lineTo(-5,5);ctx.closePath();ctx.fill();ctx.restore();
+  }}
+  var sc=PATH[0][0],sr=PATH[0][1];
+  ctx.fillStyle='rgba(0,200,0,.35)';ctx.fillRect(OX+sc*C,OY+sr*C,C,C);
+  ctx.fillStyle='#00FF88';ctx.font='bold 10px monospace';
+  ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('\u25b6START',OX+sc*C+C/2,OY+sr*C+C/2);
+  var ec=PATH[PATH.length-1][0],er=PATH[PATH.length-1][1];
+  ctx.fillStyle='rgba(200,0,0,.35)';ctx.fillRect(OX+ec*C,OY+er*C,C,C);
+  ctx.fillStyle='#FF4444';ctx.fillText('END\u2716',OX+ec*C+C/2,OY+er*C+C/2);
+}}
+
+function drawHover(){{
+  if(!SEL||hC<0)return;
+  var k=hC+','+hR,v=!PS.has(k)&&!TW[k];
+  ctx.fillStyle=v?'rgba(212,175,55,.3)':'rgba(200,50,50,.3)';ctx.fillRect(OX+hC*C,OY+hR*C,C,C);
+  ctx.strokeStyle=v?'#D4AF37':'#E74C3C';ctx.lineWidth=2;ctx.strokeRect(OX+hC*C+1,OY+hR*C+1,C-2,C-2);
+  ctx.fillStyle=v?'#FFD700':'#FF8888';ctx.font='bold 9px monospace';
+  ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('('+hC+','+hR+')',OX+hC*C+C/2,OY+hR*C+C/2);
+}}
+
+function drawTower(cx,cy,tp){{
+  var col=TC[tp]||'#888';
+  ctx.fillStyle='#5A4A3A';ctx.fillRect(cx-10,cy+4,20,8);
+  ctx.fillStyle='#6B5B4B';ctx.fillRect(cx-7,cy-12,14,16);
+  ctx.fillStyle='#7A6A5A';for(var i=0;i<3;i++)ctx.fillRect(cx-8+i*6,cy-17,4,5);
+  ctx.fillStyle=col;ctx.fillRect(cx-4,cy-8,8,10);
+  ctx.fillStyle='#0A0A1A';ctx.fillRect(cx-2,cy-6,4,5);
+  var ic={{archer:'\ud83c\udff9',mage:'\ud83d\udd2e',ballista:'\u26a1',frost:'\u2744\ufe0f',cannon:'\ud83d\udca3'}};
+  ctx.font='13px serif';ctx.textAlign='center';ctx.textBaseline='alphabetic';ctx.fillText(ic[tp]||'\ud83d\uddfc',cx,cy-20);
+}}
+
+function drawEnemy(e){{
+  var px=OX+e.x*C+C/2,py=OY+e.y*C+C/2;
+  var sz=e.size==='boss'?22:e.size==='large'?18:e.size==='medium'?14:11;
+  ctx.save();
+  ctx.fillStyle='rgba(0,0,0,.4)';ctx.beginPath();ctx.ellipse(px,py+sz-2,sz*.7,4,0,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle=e.color;ctx.fillRect(px-sz/2,py-sz,sz,sz*1.2);
+  ctx.fillStyle=lt(e.color,20);ctx.fillRect(px-sz*.4,py-sz*1.6,sz*.8,sz*.7);
+  ctx.fillStyle='#000';ctx.fillRect(px-sz*.25,py-sz*1.4,3,3);ctx.fillRect(px+sz*.1,py-sz*1.4,3,3);
+  ctx.fillStyle='#200000';ctx.fillRect(px-sz*.8,py-sz*1.9,sz*1.6,5);
+  ctx.fillStyle=e.hp_pct>.5?'#27AE60':e.hp_pct>.25?'#F39C12':'#E74C3C';
+  ctx.fillRect(px-sz*.8,py-sz*1.9,sz*1.6*e.hp_pct,5);
+  ctx.restore();
+}}
+
+function drawProjectile(p){{
+  var px=OX+p.x*C+C/2,py=OY+p.y*C+C/2,sz=p.size||4;
+  ctx.save();
+  ctx.globalAlpha=0.4;ctx.fillStyle=p.color;ctx.beginPath();ctx.arc(px,py,sz+3,0,Math.PI*2);ctx.fill();
+  ctx.globalAlpha=1;ctx.fillStyle='#FFF';ctx.beginPath();ctx.arc(px,py,sz*.6,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle=p.color;ctx.beginPath();ctx.arc(px,py,sz,0,Math.PI*2);ctx.fill();
+  ctx.restore();
+}}
+
+function render(){{
+  ctx.clearRect(0,0,CW,CH);
+  drawTerrain();
+  for(var k in TW){{var p=k.split(',').map(Number);drawTower(OX+p[0]*C+C/2,OY+p[1]*C+C/2,TW[k].type);}}
+  dispEnemies.forEach(function(e){{e.x=lerpTo(e.x,e.tx,LERP);e.y=lerpTo(e.y,e.ty,LERP);drawEnemy(e);}});
+  dispProj.forEach(function(p){{p.x=lerpTo(p.x,p.tx,LERP);p.y=lerpTo(p.y,p.ty,LERP);drawProjectile(p);}});
+  drawHover();
+  drawRulers();
+}}
+
+// ── 60fps loop ────────────────────────────────────────────────────────────
+function animLoop(){{render();requestAnimationFrame(animLoop);}}
+requestAnimationFrame(animLoop);
+
+// ── FX ────────────────────────────────────────────────────────────────────
+EV.forEach(function(ev){{
+  if(ev.type==='hit'){{
+    var px=ev.ex*C+C/2,py=ev.ey*C+C/2,el=document.createElement('div');el.className='ah';
+    var cl={{archer:'#8BC34A',mage:'#9C27B0',ballista:'#FF9800',frost:'#00BCD4',cannon:'#795548'}};
+    el.style.cssText='width:18px;height:18px;background:'+(cl[ev.tower_type]||'#FFF')+
+      ';left:'+(px-9)+'px;top:'+(py-9)+'px;opacity:.8;';
+    ov.appendChild(el);setTimeout(function(){{el.remove();}},400);
+    var dn=document.createElement('div');dn.className='dn';
+    dn.textContent='-'+ev.dmg;
+    dn.style.cssText='left:'+(px+rn(-10,10))+'px;top:'+py+'px;';
+    ov.appendChild(dn);setTimeout(function(){{dn.remove();}},600);
+  }} else if(ev.type==='kill'){{
+    var px2=ev.x*C+C/2,py2=ev.y*C+C/2,el2=document.createElement('div');el2.className='ak';
+    el2.textContent='\ud83d\udc80';el2.style.cssText='left:'+(px2-10)+'px;top:'+(py2-20)+'px;';
+    ov.appendChild(el2);setTimeout(function(){{el2.remove();}},800);
+  }} else if(ev.type==='wave_clear'){{
+    cv.style.transition='opacity .15s';cv.style.opacity='.6';
+    setTimeout(function(){{cv.style.opacity='1';}},300);
+  }}
+}});
+
+// ── Tooltip + hover ───────────────────────────────────────────────────────
+function getCell(ev){{
+  var rc=cv.getBoundingClientRect();
+  var mx=(ev.clientX-rc.left)*(CW/rc.width),my=(ev.clientY-rc.top)*(CH/rc.height);
+  return[Math.floor((mx-OX)/C),Math.floor((my-OY)/C)];
+}}
+cv.addEventListener('mousemove',function(ev){{
+  var cr=getCell(ev),c=cr[0],r=cr[1];
+  if(c>=0&&c<COLS&&r>=0&&r<ROWS){{
+    hC=c;hR=r;var k=c+','+r,tx='Col '+c+' \u00b7 Linha '+r;
+    if(TW[k])tx+=' \u2014 '+TW[k].type;
+    else if(PS.has(k))tx+=' \u2014 Caminho';
+    else if(SEL)tx+=' \u2014 Clique para construir';
+    tip.textContent=tx;tip.style.display='block';
+    var rc2=cv.getBoundingClientRect();
+    tip.style.left=(ev.clientX-rc2.left+12)+'px';tip.style.top=(ev.clientY-rc2.top+12)+'px';
+  }}else{{hC=-1;hR=-1;tip.style.display='none';}}
+}});
+cv.addEventListener('mouseleave',function(){{hC=-1;hR=-1;tip.style.display='none';}});
+
+// ── Click → ?_pc=C&_pr=R (same-origin, picked up by Streamlit) ───────────
+function sendPlace(c,r){{
+  var url=new URL(window.parent.location.href);
+  url.searchParams.set('_pc',c);url.searchParams.set('_pr',r);
+  window.parent.location.href=url.toString();
+}}
+cv.addEventListener('click',function(ev){{
+  if(!SEL)return;
+  var cr=getCell(ev),c=cr[0],r=cr[1];
+  if(c<0||c>=COLS||r<0||r>=ROWS)return;
+  var k=c+','+r;if(PS.has(k)||TW[k])return;
+  sendPlace(c,r);
+}});
+cv.addEventListener('touchstart',function(ev){{
+  ev.preventDefault();var cr=getCell(ev.touches[0]),c=cr[0],r=cr[1];
+  if(c>=0&&c<COLS&&r>=0&&r<ROWS){{hC=c;hR=r;}}
+}},{{passive:false}});
+cv.addEventListener('touchend',function(ev){{
+  ev.preventDefault();
+  if(hC>=0&&SEL){{var k=hC+','+hR;if(!PS.has(k)&&!TW[k])sendPlace(hC,hR);}}
+}},{{passive:false}});
+
+cv.style.cursor=SEL?'crosshair':'default';
+</script></body></html>"""
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SCREENS
@@ -410,16 +669,29 @@ def screen_menu():
 
 def screen_game():
     inject_global_css()
-    ss=st.session_state
-    path=current_path()
+    ss   = st.session_state
+    path = current_path()
 
-    # ── 2. Tick ───────────────────────────────────────────────────────────────
+    # ── Click-to-place via URL params ─────────────────────────────────────────
+    pc_param = st.query_params.get("_pc","")
+    pr_param = st.query_params.get("_pr","")
+    if pc_param and pr_param and ss.selected_tower:
+        try:
+            pc,pr = int(pc_param),int(pr_param)
+            if place_tower(pc,pr):
+                st.query_params.pop("_pc",None); st.query_params.pop("_pr",None)
+                st.rerun()
+        except Exception:
+            pass
+        st.query_params.pop("_pc",None); st.query_params.pop("_pr",None)
+
+    # ── Tick ──────────────────────────────────────────────────────────────────
     if ss.wave_active:
         for _ in range(6):
             tick_game()
             if not ss.wave_active: break
 
-    # ── 3. HUD (single row, compact) ──────────────────────────────────────────
+    # ── HUD ───────────────────────────────────────────────────────────────────
     h1,h2,h3,h4,h5,h6=st.columns(6)
     with h1: st.markdown(f"<div class='hud-stat'>⚔️ Onda <span class='val'>{ss.wave}/{ss.max_waves}</span></div>",unsafe_allow_html=True)
     with h2: st.markdown(f"<div class='hud-stat lives'>❤️ Vidas <span class='val'>{ss.lives}</span></div>",unsafe_allow_html=True)
@@ -431,35 +703,14 @@ def screen_game():
         st.markdown(f"<div class='hud-stat'>👾 <span class='val'>{rem}</span></div>",unsafe_allow_html=True)
     st.markdown("<hr>",unsafe_allow_html=True)
 
-    # ── 4. MAIN LAYOUT: arena | col-towers | col-controls ────────────────────
-    # On mobile the sidebar columns stack naturally; arena gets scroll wrapper.
     arena_col, towers_col, ctrl_col = st.columns([5, 2, 2])
 
     # ── ARENA ─────────────────────────────────────────────────────────────────
     with arena_col:
-        ARENA_H=RULER+GRID_H*CELL+4
-        grid=current_grid()
-        towers_dict={f"{c},{r}":{"type":grid[r][c]} for r in range(GRID_H) for c in range(GRID_W) if isinstance(grid[r][c],str)}
-        elist=[]
-        for e in ss.enemies:
-            pi=min(e["path_idx"],len(path)-2); t=max(0.0,min(1.0,e["progress"]))
-            c1,r1=path[pi]; c2,r2=path[min(pi+1,len(path)-1)]
-            elist.append({"id":e["id"],"x":c1+(c2-c1)*t,"y":r1+(r2-r1)*t,
-                          "hp_pct":max(0,e["hp"]/e["hp_max"]),"color":e["color"],"size":e["size"]})
-        plist=[{"id":p["id"],"x":p["x"],"y":p["y"],"color":p["color"],"size":p["size"]} for p in ss.projectiles if p["alive"]]
-        click_result=_arena_component(
-            path_data=path, towers_data=towers_dict, enemies_data=elist,
-            projectiles_data=plist,
-            events_data=ss.anim_events, selected=ss.selected_tower or "",
-            tcolors={"archer":"#5D8A23","mage":"#6A0080","ballista":"#B36000","frost":"#007A8C","cannon":"#4E342E"},
-            cols=GRID_W, rows=GRID_H, cell=CELL, ruler=RULER,
-            height=ARENA_H, key="arena_grid", default=None)
-        if click_result and ss.selected_tower:
-            ts=click_result.get("_ts",0)
-            if ts!=ss.get("_last_click_ts",0):
-                ss._last_click_ts=ts
-                if place_tower(click_result["col"],click_result["row"]):
-                    st.rerun()
+        ARENA_H = RULER + GRID_H*CELL + 4
+        st.markdown("<div class='arena-scroll'>",unsafe_allow_html=True)
+        st_components.html(build_arena_html(path), height=ARENA_H, scrolling=False)
+        st.markdown("</div>",unsafe_allow_html=True)
 
     # ── TOWERS COLUMN ─────────────────────────────────────────────────────────
     with towers_col:
@@ -482,8 +733,6 @@ def screen_game():
                 ss.selected_tower=None if is_sel else ttype
                 ss.click_col=-1; ss.click_row=-1
                 st.rerun()
-
-        # Upgrades owned (compact)
         if ss.upgrades:
             st.markdown("<hr>",unsafe_allow_html=True)
             st.markdown("<div class='panel-title'>✨ Melhorias</div>",unsafe_allow_html=True)
@@ -494,54 +743,39 @@ def screen_game():
 
     # ── CONTROLS COLUMN ───────────────────────────────────────────────────────
     with ctrl_col:
-
-        # Build panel — only shown when a tower is selected
         if ss.selected_tower:
             td=TOWER_TYPES[ss.selected_tower]
-
-            # Pre-fill from map click if available
-            default_c = ss.click_col if ss.click_col >= 0 else 0
-            default_r = ss.click_row if ss.click_row >= 0 else 0
-
+            default_c=ss.click_col if ss.click_col>=0 else 0
+            default_r=ss.click_row if ss.click_row>=0 else 0
             st.markdown(f"""
             <div class='build-panel'>
                 <div class='bp-title'>{td['emoji']} {td['name']}</div>
                 <div class='bp-hint'>Clique no mapa ou informe abaixo</div>
             </div>""",unsafe_allow_html=True)
-
             st.markdown("<div class='panel-title'>📍 Posição</div>",unsafe_allow_html=True)
             ci1,ci2=st.columns(2)
             with ci1:
                 col_in=st.number_input("Col",0,GRID_W-1,default_c,key="pc",help="Coluna 0–13")
             with ci2:
                 row_in=st.number_input("Lin",0,GRID_H-1,default_r,key="pr",help="Linha 0–9")
-
             g_cell=current_grid()[row_in][col_in]
             is_path_c=g_cell==CELL_PATH
             is_occ=isinstance(g_cell,str)
             cell_ok=g_cell==CELL_EMPTY
             cost_now=get_tower_cost(ss.selected_tower)
-
             if is_path_c:
                 st.markdown("<div class='bad-cell'>⛔ Célula no caminho!</div>",unsafe_allow_html=True)
             elif is_occ:
                 st.markdown("<div class='bad-cell'>⛔ Posição ocupada!</div>",unsafe_allow_html=True)
             else:
                 st.markdown(f"<div class='ok-cell'>✅ Livre ({col_in},{row_in})</div>",unsafe_allow_html=True)
-
-            # ── BUILD BUTTON — the single source of truth ──────────────────
             if st.button(f"🔨 Construir — {cost_now}g", use_container_width=True,
                          disabled=not cell_ok or ss.gold < cost_now):
-                if place_tower(col_in, row_in):
-                    st.rerun()
-
+                if place_tower(col_in, row_in): st.rerun()
             if st.button("❌ Cancelar",use_container_width=True):
-                ss.selected_tower=None; ss.click_col=-1; ss.click_row=-1
-                st.rerun()
+                ss.selected_tower=None; ss.click_col=-1; ss.click_row=-1; st.rerun()
 
         st.markdown("<hr>",unsafe_allow_html=True)
-
-        # Wave control
         if not ss.wave_active:
             if ss.wave<ss.max_waves:
                 if st.button(f"⚔️ Onda {ss.wave+1}",use_container_width=True):
@@ -550,12 +784,9 @@ def screen_game():
                 st.success("Vitória! 🏆")
         else:
             st.markdown(f"<div style='text-align:center;color:#E74C3C;font-family:Cinzel,serif;font-size:.7rem;'>⚔️ Onda {ss.wave} ativa!</div>",unsafe_allow_html=True)
-            if st.button("🔄 Atualizar",use_container_width=True):
-                st.rerun()
+            if st.button("🔄 Atualizar",use_container_width=True): st.rerun()
 
         st.markdown("<hr>",unsafe_allow_html=True)
-
-        # Combat log
         st.markdown("<div class='panel-title'>📜 Log</div>",unsafe_allow_html=True)
         log_html="".join(
             f"<div class='log-entry {'kill' if '💀' in e else 'gold' if '💰' in e else 'wave'}'>{e}</div>"
@@ -563,10 +794,8 @@ def screen_game():
         )
         st.markdown(f"<div class='log-box'>{log_html}</div>",unsafe_allow_html=True)
 
-    # Auto-rerun during wave
     if ss.wave_active and ss.screen=="game":
         time.sleep(0.15); st.rerun()
-
     if ss.screen!="game": st.rerun()
 
 
@@ -575,7 +804,8 @@ def screen_upgrade():
     ss=st.session_state
     st.markdown(f"""
     <div style='text-align:center;padding:28px 0 18px;'>
-        <div style='font-family:"Cinzel Decorative",cursive;font-size:1.9rem;color:#D4AF37;text-shadow:0 0 20px rgba(212,175,55,.5);'>✨ Escolha sua Melhoria ✨</div>
+        <div style='font-family:"Cinzel Decorative",cursive;font-size:1.9rem;color:#D4AF37;
+                    text-shadow:0 0 20px rgba(212,175,55,.5);'>✨ Escolha sua Melhoria ✨</div>
         <div style='font-family:Cinzel,serif;font-size:.82rem;color:#7A7A8A;margin-top:7px;'>
             Onda {ss.wave} superada! Ouro: {ss.gold}g · Score: {ss.score:,}
         </div>
