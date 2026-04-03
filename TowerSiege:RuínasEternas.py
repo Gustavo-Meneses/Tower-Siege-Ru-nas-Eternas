@@ -504,10 +504,10 @@ function drawTerrain(){{
   var sc=PATH[0][0],sr=PATH[0][1];
   ctx.fillStyle='rgba(0,200,0,.35)';ctx.fillRect(OX+sc*C,OY+sr*C,C,C);
   ctx.fillStyle='#00FF88';ctx.font='bold 10px monospace';
-  ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('\u25b6START',OX+sc*C+C/2,OY+sr*C+C/2);
+  ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('▶START',OX+sc*C+C/2,OY+sr*C+C/2);
   var ec=PATH[PATH.length-1][0],er=PATH[PATH.length-1][1];
   ctx.fillStyle='rgba(200,0,0,.35)';ctx.fillRect(OX+ec*C,OY+er*C,C,C);
-  ctx.fillStyle='#FF4444';ctx.fillText('END\u2716',OX+ec*C+C/2,OY+er*C+C/2);
+  ctx.fillStyle='#FF4444';ctx.fillText('END✖',OX+ec*C+C/2,OY+er*C+C/2);
 }}
 
 function drawHover(){{
@@ -526,8 +526,8 @@ function drawTower(cx,cy,tp){{
   ctx.fillStyle='#7A6A5A';for(var i=0;i<3;i++)ctx.fillRect(cx-8+i*6,cy-17,4,5);
   ctx.fillStyle=col;ctx.fillRect(cx-4,cy-8,8,10);
   ctx.fillStyle='#0A0A1A';ctx.fillRect(cx-2,cy-6,4,5);
-  var ic={{archer:'\ud83c\udff9',mage:'\ud83d\udd2e',ballista:'\u26a1',frost:'\u2744\ufe0f',cannon:'\ud83d\udca3'}};
-  ctx.font='13px serif';ctx.textAlign='center';ctx.textBaseline='alphabetic';ctx.fillText(ic[tp]||'\ud83d\uddfc',cx,cy-20);
+  var ic={archer:'🏹',mage:'🔮',ballista:'⚡',frost:'❄',cannon:'💣'};
+  ctx.font='13px serif';ctx.textAlign='center';ctx.textBaseline='alphabetic';ctx.fillText(ic[tp]||'🗼',cx,cy-20);
 }}
 
 function drawEnemy(e){{
@@ -581,7 +581,7 @@ EV.forEach(function(ev){{
     ov.appendChild(dn);setTimeout(function(){{dn.remove();}},600);
   }} else if(ev.type==='kill'){{
     var px2=ev.x*C+C/2,py2=ev.y*C+C/2,el2=document.createElement('div');el2.className='ak';
-    el2.textContent='\ud83d\udc80';el2.style.cssText='left:'+(px2-10)+'px;top:'+(py2-20)+'px;';
+    el2.textContent='💀';el2.style.cssText='left:'+(px2-10)+'px;top:'+(py2-20)+'px;';
     ov.appendChild(el2);setTimeout(function(){{el2.remove();}},800);
   }} else if(ev.type==='wave_clear'){{
     cv.style.transition='opacity .15s';cv.style.opacity='.6';
@@ -598,10 +598,10 @@ function getCell(ev){{
 cv.addEventListener('mousemove',function(ev){{
   var cr=getCell(ev),c=cr[0],r=cr[1];
   if(c>=0&&c<COLS&&r>=0&&r<ROWS){{
-    hC=c;hR=r;var k=c+','+r,tx='Col '+c+' \u00b7 Linha '+r;
-    if(TW[k])tx+=' \u2014 '+TW[k].type;
-    else if(PS.has(k))tx+=' \u2014 Caminho';
-    else if(SEL)tx+=' \u2014 Clique para construir';
+    hC=c;hR=r;var k=c+','+r,tx='Col '+c+' · Linha '+r;
+    if(TW[k])tx+=' — '+TW[k].type;
+    else if(PS.has(k))tx+=' — Caminho';
+    else if(SEL)tx+=' — Clique para construir';
     tip.textContent=tx;tip.style.display='block';
     var rc2=cv.getBoundingClientRect();
     tip.style.left=(ev.clientX-rc2.left+12)+'px';tip.style.top=(ev.clientY-rc2.top+12)+'px';
