@@ -526,7 +526,7 @@ function drawTower(cx,cy,tp){{
   ctx.fillStyle='#7A6A5A';for(var i=0;i<3;i++)ctx.fillRect(cx-8+i*6,cy-17,4,5);
   ctx.fillStyle=col;ctx.fillRect(cx-4,cy-8,8,10);
   ctx.fillStyle='#0A0A1A';ctx.fillRect(cx-2,cy-6,4,5);
-  var ic={archer:'🏹',mage:'🔮',ballista:'⚡',frost:'❄',cannon:'💣'};
+  var ic={{'archer':'🏹','mage':'🔮','ballista':'⚡','frost':'❄','cannon':'💣'}};
   ctx.font='13px serif';ctx.textAlign='center';ctx.textBaseline='alphabetic';ctx.fillText(ic[tp]||'🗼',cx,cy-20);
 }}
 
